@@ -323,6 +323,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Public: tells the UI whether Azure OAuth is configured
+  if (method === 'GET' && pathname === '/api/auth/config') {
+    return json(res, { azure_configured: !!(AZURE_CLIENT_ID && AZURE_TENANT_ID) });
+  }
+
   // OAuth: /auth/callback is public (Microsoft redirects here)
   if (AZURE_CLIENT_ID && method === 'GET' && pathname === '/auth/callback') {
     const code = url.searchParams.get('code');
@@ -362,11 +367,6 @@ const server = http.createServer(async (req, res) => {
       '&prompt=select_account';
     res.writeHead(302, { Location: authUrl }); res.end();
     return;
-  }
-
-  // Azure config flag (tells UI whether to show Connect button)
-  if (method === 'GET' && pathname === '/api/auth/config') {
-    return json(res, { azure_configured: !!(AZURE_CLIENT_ID && AZURE_TENANT_ID) });
   }
 
   // Connected Microsoft accounts
