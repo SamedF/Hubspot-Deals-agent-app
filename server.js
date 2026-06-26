@@ -422,11 +422,11 @@ const server = http.createServer(async (req, res) => {
           const wEnd   = new Date(end.getTime()   + 5400000);  // 90 min after
 
           const files = await graphRequest(token,
-            '/me/drive/root:/Recordings:/children?$orderby=createdDateTime+desc&$top=30').catch(() => null);
+            "/me/drive/root/search(q='.vtt')?$top=50&$orderby=createdDateTime+desc").catch(() => null);
 
           if (files?.value) {
             const match = files.value.find(f => {
-              if (!f.name.endsWith('.vtt')) return false;
+              if (!f.name.toLowerCase().endsWith('.vtt')) return false;
               const c = new Date(f.createdDateTime);
               return c >= wStart && c <= wEnd;
             });
