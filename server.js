@@ -118,7 +118,7 @@ async function createQuoteForDeal(dealId, deal) {
       hs_expiration_date: String(expiry.getTime()),
       hs_status: 'DRAFT',
       hs_language: 'en',
-      hs_template_type: 'RESPONSIVE',
+      hs_template_type: 'QUOTE',
     },
   });
   if (!quote.id) return { error: 'Quote creation failed: ' + JSON.stringify(quote) };
