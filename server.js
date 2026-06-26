@@ -74,11 +74,11 @@ function writeDeals(deals) {
 }
 
 // ── HubSpot ───────────────────────────────────────────────────────────────────
-function hubspotPost(payload) {
+function hubspotRequest(method, path, payload) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify(payload);
+    const body = payload ? JSON.stringify(payload) : '';
     const req = https.request({
-      hostname: 'api.hubapi.com', path: '/crm/v3/objects/deals', method: 'POST',
+      hostname: 'api.hubapi.com', path, method,
       headers: {
         'Authorization': 'Bearer ' + HUBSPOT_TOKEN,
         'Content-Type': 'application/json',
@@ -90,9 +90,55 @@ function hubspotPost(payload) {
       res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve({ error: data }); } });
     });
     req.on('error', reject);
-    req.write(body);
+    if (body) req.write(body);
     req.end();
   });
+}
+
+async function createQuoteForDeal(dealId, deal) {
+  const expiry = new Date();
+  expiry.setDate(expiry.getDate() + 30);
+
+  // 1. Create the quote linked to the deal
+  const quote = await hubspotRequest('POST', '/crm/v3/objects/quotes', {
+    properties: {
+      hs_title: deal.deal_name,
+      hs_expiration_date: expiry.toISOString().split('T')[0],
+      hs_status: 'DRAFT',
+    },
+    associations: [{
+      to: { id: String(dealId) },
+      types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 717 }],
+    }],
+  });
+  if (!quote.id) return { error: 'Quote creation failed: ' + JSON.stringify(quote) };
+
+  // 2. Create one line item per product and associate with the quote
+  const products = Array.isArray(deal.products) && deal.products.length
+    ? deal.products
+    : ['Quinta Services'];
+  const total = parseFloat(deal.estimated_amount) || 0;
+  const unitPrice = total && products.length ? (total / products.length).toFixed(2) : '0';
+
+  for (const product of products) {
+    const li = await hubspotRequest('POST', '/crm/v3/objects/line_items', {
+      properties: {
+        name: product,
+        quantity: '1',
+        price: unitPrice,
+        recurringbillingfrequency: 'monthly',
+        hs_recurring_billing_period: 'P12M',
+      },
+    });
+    if (li.id) {
+      await hubspotRequest('PUT', `/crm/v4/objects/line_items/${li.id}/associations/quotes/${quote.id}`, [
+        { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 67 },
+      ]);
+    }
+  }
+
+  const quoteUrl = 'https://app-eu1.hubspot.com/contacts/' + HUBSPOT_PORTAL + '/quotes/' + quote.id;
+  return { id: quote.id, url: quoteUrl };
 }
 
 function readBody(req) {
@@ -215,14 +261,22 @@ const server = http.createServer(async (req, res) => {
       };
       if (deal.estimated_amount) payload.properties.amount = String(deal.estimated_amount);
       try {
-        const result = await hubspotPost(payload);
+        const result = await hubspotRequest('POST', '/crm/v3/objects/deals', payload);
         if (result.id) {
           const dealUrl = 'https://app-eu1.hubspot.com/contacts/' + HUBSPOT_PORTAL + '/record/0-3/' + result.id;
           deals[idx].status = 'created';
           deals[idx].hubspot_id = result.id;
           deals[idx].hubspot_url = dealUrl;
+
+          // Create quote and line items
+          const quoteResult = await createQuoteForDeal(result.id, deal);
+          if (quoteResult.id) {
+            deals[idx].hubspot_quote_id = quoteResult.id;
+            deals[idx].hubspot_quote_url = quoteResult.url;
+          }
+
           writeDeals(deals);
-          json(res, { id: result.id, url: dealUrl });
+          json(res, { id: result.id, url: dealUrl, quote_url: quoteResult.url, quote_error: quoteResult.error });
         } else {
           json(res, { error: JSON.stringify(result) }, 400);
         }

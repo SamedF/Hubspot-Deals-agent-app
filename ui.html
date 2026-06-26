@@ -426,7 +426,11 @@ function cardHtml(deal,idx){
 
   var footer='';
   if(ip)footer='<div class="cfoot"><button class="btng" onclick="skipDeal('+idx+')">Skip</button><button class="btnp" id="cbtn'+idx+'" onclick="createDeal('+idx+')">Create in HubSpot &rarr;</button></div>';
-  else if(deal.hubspot_url)footer='<div class="cfoot-ok"><a class="hsl" href="'+ea(deal.hubspot_url)+'" target="_blank">View in HubSpot &rarr;</a></div>';
+  else if(deal.hubspot_url){
+    footer='<div class="cfoot-ok" style="display:flex;gap:16px;flex-wrap:wrap"><a class="hsl" href="'+ea(deal.hubspot_url)+'" target="_blank">View Deal &rarr;</a>'
+      +(deal.hubspot_quote_url?'<a class="hsl" href="'+ea(deal.hubspot_quote_url)+'" target="_blank">View Quote &rarr;</a>':'')
+      +'</div>';
+  }
 
   return '<div class="card" id="card'+idx+'">'
     +'<div class="ch"><div class="cm"><div class="cb"><span class="'+badgeCls+'">'+badgeTxt+'</span><span class="'+confCls+'">'+conf+'%</span></div><div class="cmeta">'+meta+'</div></div><div>'+editBtn+'</div></div>'
