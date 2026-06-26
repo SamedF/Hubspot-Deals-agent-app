@@ -95,8 +95,12 @@ function hubspotRequest(method, path, payload) {
     }, res => {
       let data = '';
       res.on('data', c => data += c);
-      res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve({ error: data }); } });
+      res.on('end', () => {
+        if (!data) { resolve({ _status: res.statusCode }); return; } // 204 No Content etc.
+        try { resolve(JSON.parse(data)); } catch { resolve({ error: data, _status: res.statusCode }); }
+      });
     });
+    req.setTimeout(15000, () => { req.destroy(new Error('HubSpot request timeout: ' + method + ' ' + path)); });
     req.on('error', reject);
     if (body) req.write(body);
     req.end();
@@ -117,10 +121,11 @@ async function createQuoteForDeal(dealId, deal) {
   });
   if (!quote.id) return { error: 'Quote creation failed: ' + JSON.stringify(quote) };
 
-  // 2. Associate quote with deal via v4 API
-  await hubspotRequest('PUT', `/crm/v4/objects/quotes/${quote.id}/associations/deals/${dealId}`, [
-    { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 717 },
-  ]);
+  // 2. Associate quote with deal via v3 batch API
+  const assocResult = await hubspotRequest('POST', '/crm/v3/associations/quotes/deals/batch/create', {
+    inputs: [{ from: { id: String(quote.id) }, to: { id: String(dealId) }, type: 'quote_to_deal' }],
+  });
+  if (assocResult.error) console.warn('Quote-deal association warning:', assocResult.error);
 
   // 3. Create one line item per product and associate with the quote
   const products = Array.isArray(deal.products) && deal.products.length
@@ -140,13 +145,14 @@ async function createQuoteForDeal(dealId, deal) {
       },
     });
     if (li.id) {
-      // Associate line item with quote and with deal
-      await hubspotRequest('PUT', `/crm/v4/objects/line_items/${li.id}/associations/quotes/${quote.id}`, [
-        { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 67 },
-      ]);
-      await hubspotRequest('PUT', `/crm/v4/objects/line_items/${li.id}/associations/deals/${dealId}`, [
-        { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 19 },
-      ]);
+      // Associate line item with quote
+      await hubspotRequest('POST', '/crm/v3/associations/line_items/quotes/batch/create', {
+        inputs: [{ from: { id: String(li.id) }, to: { id: String(quote.id) }, type: 'line_item_to_quote' }],
+      });
+      // Associate line item with deal
+      await hubspotRequest('POST', '/crm/v3/associations/line_items/deals/batch/create', {
+        inputs: [{ from: { id: String(li.id) }, to: { id: String(dealId) }, type: 'line_item_to_deal' }],
+      });
     }
   }
 
