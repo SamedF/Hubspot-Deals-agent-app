@@ -114,6 +114,24 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 code{background:#F3F4F6;padding:2px 5px;border-radius:4px;font-size:11px;font-family:monospace}
 .errmsg{background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;color:#991B1B;font-size:13px;margin-bottom:12px}
 
+/* ── Calendars panel ── */
+.calbtn{background:none;border:1px solid #E5E7EB;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:500;cursor:pointer;color:#374151;font-family:inherit;display:flex;align-items:center;gap:5px}
+.calbtn:hover{background:#F3F4F6}
+.calbadge{background:#4F46E5;color:#fff;border-radius:99px;padding:0 5px;font-size:10px;font-weight:700}
+.cal-overlay{display:none;position:fixed;inset:0;z-index:50}
+.cal-overlay.open{display:block}
+.cal-drawer{position:fixed;top:56px;right:16px;background:#fff;border:1px solid #E5E7EB;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.12);width:300px;z-index:51;padding:16px}
+.cal-drawer h3{font-size:13px;font-weight:700;margin-bottom:12px;color:#111827}
+.cal-user{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#F9FAFB;border-radius:8px;margin-bottom:6px}
+.cal-user-info{min-width:0}
+.cal-user-name{font-size:13px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-user-email{font-size:11px;color:#9CA3AF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.caldis{background:none;border:none;color:#DC2626;font-size:11px;cursor:pointer;padding:3px 6px;border-radius:4px;flex-shrink:0}
+.caldis:hover{background:#FEF2F2}
+.cal-connect{display:block;width:100%;text-align:center;background:#4F46E5;color:#fff;border:none;border-radius:8px;padding:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:none;margin-top:10px}
+.cal-connect:hover{background:#4338CA}
+.cal-note{font-size:11px;color:#9CA3AF;text-align:center;margin-top:8px}
+
 /* ── Toast ── */
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1F2937;color:#fff;border-radius:10px;padding:10px 20px;font-size:13px;font-weight:500;opacity:0;transition:all .3s;z-index:100;pointer-events:none}
 .toast.show{opacity:1;transform:translateX(-50%)}
@@ -150,6 +168,9 @@ code{background:#F3F4F6;padding:2px 5px;border-radius:4px;font-size:11px;font-fa
       <div class="hr">
         <div class="dot" id="dot" title="Live connection"></div>
         <div class="nbadge" id="nbadge" onclick="onBadge()">New deals</div>
+        <button class="calbtn" id="calbtn" onclick="toggleCalDrawer()" style="display:none">
+          📅 Calendars <span class="calbadge" id="calbadge">0</span>
+        </button>
         <button class="outbtn" onclick="doLogout()">Sign out</button>
       </div>
     </div>
@@ -167,6 +188,15 @@ code{background:#F3F4F6;padding:2px 5px;border-radius:4px;font-size:11px;font-fa
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Calendars drawer -->
+<div class="cal-overlay" id="cal-overlay" onclick="toggleCalDrawer()"></div>
+<div class="cal-drawer" id="cal-drawer" style="display:none">
+  <h3>Connected Calendars</h3>
+  <div id="cal-users"></div>
+  <a class="cal-connect" href="/auth/connect" id="cal-connect-btn">+ Connect Microsoft Calendar</a>
+  <div class="cal-note" id="cal-note"></div>
+</div>
 
 <script>
 var deals = [];
@@ -224,6 +254,7 @@ function showApp(){
   document.getElementById('app').style.display='block';
   loadDeals();
   connectSSE();
+  loadCalendars();
 }
 
 // ── Data ──────────────────────────────────────────────────────────────────────
@@ -496,6 +527,51 @@ function showToast(msg){
   var t=document.getElementById('toast');
   t.textContent=msg;t.classList.add('show');
   setTimeout(function(){t.classList.remove('show');},2800);
+}
+
+// ── Calendars ─────────────────────────────────────────────────────────────────
+
+var calDrawerOpen = false;
+
+function loadCalendars(){
+  fetch('/api/auth/config').then(function(r){return r.json();}).then(function(cfg){
+    if(!cfg.azure_configured) return;
+    document.getElementById('calbtn').style.display='flex';
+    fetch('/api/auth/users').then(function(r){return r.json();}).then(function(users){
+      document.getElementById('calbadge').textContent=users.length;
+      renderCalUsers(users);
+    }).catch(function(){});
+  }).catch(function(){});
+}
+
+function renderCalUsers(users){
+  var el=document.getElementById('cal-users');
+  if(!users.length){
+    el.innerHTML='<div style="color:#9CA3AF;font-size:12px;text-align:center;padding:12px 0">No calendars connected yet</div>';
+    document.getElementById('cal-note').textContent='Connect your Microsoft calendar to enable automatic scanning.';
+    return;
+  }
+  document.getElementById('cal-note').textContent=users.length+' calendar'+(users.length>1?'s':'')+' connected. Agent will scan all accounts.';
+  el.innerHTML=users.map(function(u){
+    return '<div class="cal-user">'
+      +'<div class="cal-user-info"><div class="cal-user-name">'+ex(u.name||u.email)+'</div>'
+      +'<div class="cal-user-email">'+ex(u.email)+'</div></div>'
+      +'<button class="caldis" onclick="disconnectCal(\''+ea(u.email)+'\')">Remove</button>'
+      +'</div>';
+  }).join('');
+}
+
+function toggleCalDrawer(){
+  calDrawerOpen=!calDrawerOpen;
+  document.getElementById('cal-overlay').classList.toggle('open',calDrawerOpen);
+  document.getElementById('cal-drawer').style.display=calDrawerOpen?'block':'none';
+  if(calDrawerOpen) loadCalendars();
+}
+
+function disconnectCal(email){
+  if(!confirm('Remove '+email+'?')) return;
+  fetch('/api/auth/users/'+encodeURIComponent(email),{method:'DELETE'})
+    .then(function(){loadCalendars();showToast('Calendar removed');});
 }
 </script>
 </body>
