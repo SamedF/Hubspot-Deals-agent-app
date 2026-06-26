@@ -107,21 +107,22 @@ async function createQuoteForDeal(dealId, deal) {
   const expiry = new Date();
   expiry.setDate(expiry.getDate() + 30);
 
-  // 1. Create the quote linked to the deal
+  // 1. Create the quote (expiration date must be ms timestamp as string)
   const quote = await hubspotRequest('POST', '/crm/v3/objects/quotes', {
     properties: {
       hs_title: deal.deal_name,
-      hs_expiration_date: expiry.toISOString().split('T')[0],
+      hs_expiration_date: String(expiry.getTime()),
       hs_status: 'DRAFT',
     },
-    associations: [{
-      to: { id: String(dealId) },
-      types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 717 }],
-    }],
   });
   if (!quote.id) return { error: 'Quote creation failed: ' + JSON.stringify(quote) };
 
-  // 2. Create one line item per product and associate with the quote
+  // 2. Associate quote with deal via v4 API
+  await hubspotRequest('PUT', `/crm/v4/objects/quotes/${quote.id}/associations/deals/${dealId}`, [
+    { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 717 },
+  ]);
+
+  // 3. Create one line item per product and associate with the quote
   const products = Array.isArray(deal.products) && deal.products.length
     ? deal.products
     : ['Quinta Services'];
@@ -139,8 +140,12 @@ async function createQuoteForDeal(dealId, deal) {
       },
     });
     if (li.id) {
+      // Associate line item with quote and with deal
       await hubspotRequest('PUT', `/crm/v4/objects/line_items/${li.id}/associations/quotes/${quote.id}`, [
         { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 67 },
+      ]);
+      await hubspotRequest('PUT', `/crm/v4/objects/line_items/${li.id}/associations/deals/${dealId}`, [
+        { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 19 },
       ]);
     }
   }
@@ -287,6 +292,25 @@ const server = http.createServer(async (req, res) => {
           json(res, { id: result.id, url: dealUrl, quote_url: quoteResult.url, quote_error: quoteResult.error });
         } else {
           json(res, { error: JSON.stringify(result) }, 400);
+        }
+      } catch (e) { json(res, { error: e.message }, 500); }
+      return;
+    }
+
+    if (method === 'POST' && action === '/create-quote') {
+      const deals = readDeals();
+      if (idx < 0 || idx >= deals.length) return json(res, { error: 'Not found' }, 404);
+      const deal = deals[idx];
+      if (!deal.hubspot_id) return json(res, { error: 'Deal not created in HubSpot yet' }, 400);
+      try {
+        const quoteResult = await createQuoteForDeal(deal.hubspot_id, deal);
+        if (quoteResult.id) {
+          deals[idx].hubspot_quote_id = quoteResult.id;
+          deals[idx].hubspot_quote_url = quoteResult.url;
+          writeDeals(deals);
+          json(res, { id: quoteResult.id, url: quoteResult.url });
+        } else {
+          json(res, { error: quoteResult.error }, 400);
         }
       } catch (e) { json(res, { error: e.message }, 500); }
       return;

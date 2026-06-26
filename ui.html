@@ -427,9 +427,12 @@ function cardHtml(deal,idx){
   var footer='';
   if(ip)footer='<div class="cfoot"><button class="btng" onclick="skipDeal('+idx+')">Skip</button><button class="btnp" id="cbtn'+idx+'" onclick="createDeal('+idx+')">Create in HubSpot &rarr;</button></div>';
   else if(deal.hubspot_url){
-    footer='<div class="cfoot-ok" style="display:flex;gap:16px;flex-wrap:wrap"><a class="hsl" href="'+ea(deal.hubspot_url)+'" target="_blank">View Deal &rarr;</a>'
-      +(deal.hubspot_quote_url?'<a class="hsl" href="'+ea(deal.hubspot_quote_url)+'" target="_blank">View Quote &rarr;</a>':'')
-      +'</div>';
+    var quoteLink = deal.hubspot_quote_url
+      ? '<a class="hsl" href="'+ea(deal.hubspot_quote_url)+'" target="_blank">View Quote &rarr;</a>'
+      : '<button class="btne" id="qbtn'+idx+'" onclick="createQuote('+idx+')">+ Create Quote</button>';
+    footer='<div class="cfoot-ok" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
+      +'<a class="hsl" href="'+ea(deal.hubspot_url)+'" target="_blank">View Deal &rarr;</a>'
+      +quoteLink+'</div>';
   }
 
   return '<div class="card" id="card'+idx+'">'
@@ -466,6 +469,17 @@ function createDeal(idx){
       if(d.error){alert('HubSpot error: '+d.error);if(btn){btn.textContent='Create in HubSpot →';btn.disabled=false;}}
       else{deals[idx].status='created';deals[idx].hubspot_id=d.id;deals[idx].hubspot_url=d.url;delete deals[idx]._editing;render();showToast('Deal created');}
     }).catch(function(e){alert('Error: '+e.message);if(btn){btn.textContent='Create in HubSpot →';btn.disabled=false;}});
+}
+
+function createQuote(idx){
+  var btn=document.getElementById('qbtn'+idx);
+  if(btn){btn.textContent='Creating...';btn.disabled=true;}
+  fetch('/api/deals/'+idx+'/create-quote',{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){alert('Quote error: '+d.error);if(btn){btn.textContent='+ Create Quote';btn.disabled=false;}}
+      else{deals[idx].hubspot_quote_id=d.id;deals[idx].hubspot_quote_url=d.url;render();showToast('Quote created');}
+    }).catch(function(e){alert('Error: '+e.message);if(btn){btn.textContent='+ Create Quote';btn.disabled=false;}});
 }
 
 function skipDeal(idx){
