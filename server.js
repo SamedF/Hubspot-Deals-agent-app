@@ -232,7 +232,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const match = pathname.match(/^\/api\/deals\/(\d+)(\/\w+)?$/);
+  const match = pathname.match(/^\/api\/deals\/(\d+)(\/[\w-]+)?$/);
   if (match) {
     const idx = parseInt(match[1], 10);
     const action = match[2] || '';
