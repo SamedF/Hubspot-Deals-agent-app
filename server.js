@@ -108,37 +108,49 @@ function hubspotRequest(method, path, payload) {
 }
 
 // Search HubSpot CRM and return first matching object id, or null
-async function hubspotSearch(objectType, propName, value) {
+async function hubspotSearch(objectType, propName, operator, value) {
   const r = await hubspotRequest('POST', `/crm/v3/objects/${objectType}/search`, {
-    filterGroups: [{ filters: [{ propertyName: propName, operator: 'EQ', value }] }],
+    filterGroups: [{ filters: [{ propertyName: propName, operator, value }] }],
     limit: 1,
     properties: [propName],
   });
   return (r.results && r.results.length) ? r.results[0].id : null;
 }
 
-// Associate deal with company and contacts after creation
+// Associate deal with company and contacts after creation; returns summary log
 async function associateDealCRM(dealId, deal) {
-  // Company by name
+  const log = [];
+
+  // Company: try exact match first, fall back to partial token match
   if (deal.company_name) {
-    const companyId = await hubspotSearch('companies', 'name', deal.company_name);
+    let companyId = await hubspotSearch('companies', 'name', 'EQ', deal.company_name);
+    if (!companyId) companyId = await hubspotSearch('companies', 'name', 'CONTAINS_TOKEN', deal.company_name.split(' ')[0]);
     if (companyId) {
       await hubspotRequest('POST', '/crm/v3/associations/deals/companies/batch/create', {
         inputs: [{ from: { id: String(dealId) }, to: { id: String(companyId) }, type: 'deal_to_company' }],
       });
+      log.push('company:' + companyId);
+    } else {
+      log.push('company:not_found');
     }
   }
+
   // Contacts by email (from attendees array in deal JSON)
   const attendees = Array.isArray(deal.attendees) ? deal.attendees : [];
   for (const a of attendees) {
     if (!a.email) continue;
-    const contactId = await hubspotSearch('contacts', 'email', a.email);
+    const contactId = await hubspotSearch('contacts', 'email', 'EQ', a.email);
     if (contactId) {
       await hubspotRequest('POST', '/crm/v3/associations/deals/contacts/batch/create', {
         inputs: [{ from: { id: String(dealId) }, to: { id: String(contactId) }, type: 'deal_to_contact' }],
       });
+      log.push('contact:' + contactId);
+    } else {
+      log.push('contact_not_found:' + a.email);
     }
   }
+
+  return log;
 }
 
 async function createQuoteForDeal(dealId, deal) {
@@ -181,13 +193,8 @@ async function createQuoteForDeal(dealId, deal) {
       },
     });
     if (li.id) {
-      // Associate line item with quote
       await hubspotRequest('POST', '/crm/v3/associations/line_items/quotes/batch/create', {
         inputs: [{ from: { id: String(li.id) }, to: { id: String(quote.id) }, type: 'line_item_to_quote' }],
-      });
-      // Associate line item with deal
-      await hubspotRequest('POST', '/crm/v3/associations/line_items/deals/batch/create', {
-        inputs: [{ from: { id: String(li.id) }, to: { id: String(dealId) }, type: 'line_item_to_deal' }],
       });
     }
   }
@@ -323,8 +330,9 @@ const server = http.createServer(async (req, res) => {
           deals[idx].hubspot_id = result.id;
           deals[idx].hubspot_url = dealUrl;
 
-          // Associate company + contacts (best-effort, won't block deal creation)
-          try { await associateDealCRM(result.id, deal); } catch {}
+          // Associate company + contacts (best-effort)
+          let assocLog = [];
+          try { assocLog = await associateDealCRM(result.id, deal); } catch (e) { assocLog = ['assoc_error:' + e.message]; }
 
           // Create quote and line items
           const quoteResult = await createQuoteForDeal(result.id, deal);
@@ -334,7 +342,7 @@ const server = http.createServer(async (req, res) => {
           }
 
           writeDeals(deals);
-          json(res, { id: result.id, url: dealUrl, quote_url: quoteResult.url, quote_error: quoteResult.error });
+          json(res, { id: result.id, url: dealUrl, quote_url: quoteResult.url, quote_error: quoteResult.error, assoc: assocLog });
         } else {
           json(res, { error: JSON.stringify(result) }, 400);
         }
