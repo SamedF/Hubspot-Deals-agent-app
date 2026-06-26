@@ -6,6 +6,14 @@ const path = require('path');
 const crypto = require('crypto');
 const { exec } = require('child_process');
 
+// Load .env file if present (doesn't override already-set env vars)
+try {
+  fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split('\n').forEach(line => {
+    const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+  });
+} catch {}
+
 const PORT = process.env.PORT || 3333;
 const DEALS_FILE = path.join(process.env.DEALS_DIR || __dirname, 'pending_deals.json');
 const HTML_FILE = path.join(__dirname, 'ui.html');
