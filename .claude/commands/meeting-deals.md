@@ -48,6 +48,7 @@ Extract:
 - `summary`: 2-3 sentences in English
 - `next_steps`: list of concrete follow-up actions
 - `confidence`: 0.0-1.0
+- `attendees`: list of external attendees (non-quinta.im, non-quicktext.im) from the calendar event, as `[{"name": "...", "email": "..."}]`
 
 Skip if `is_sales_cs_meeting` is false or `confidence < 0.65`.
 
@@ -70,7 +71,10 @@ Collect all qualifying deal drafts into a JSON array. Each object must have:
   "products": ["Q-Data", "Velma"],
   "summary": "...",
   "next_steps": ["step 1", "step 2"],
-  "confidence": 0.87
+  "confidence": 0.87,
+  "attendees": [
+    {"name": "Andrea Gulberti", "email": "andrea@example.com"}
+  ]
 }
 ```
 

@@ -107,6 +107,40 @@ function hubspotRequest(method, path, payload) {
   });
 }
 
+// Search HubSpot CRM and return first matching object id, or null
+async function hubspotSearch(objectType, propName, value) {
+  const r = await hubspotRequest('POST', `/crm/v3/objects/${objectType}/search`, {
+    filterGroups: [{ filters: [{ propertyName: propName, operator: 'EQ', value }] }],
+    limit: 1,
+    properties: [propName],
+  });
+  return (r.results && r.results.length) ? r.results[0].id : null;
+}
+
+// Associate deal with company and contacts after creation
+async function associateDealCRM(dealId, deal) {
+  // Company by name
+  if (deal.company_name) {
+    const companyId = await hubspotSearch('companies', 'name', deal.company_name);
+    if (companyId) {
+      await hubspotRequest('POST', '/crm/v3/associations/deals/companies/batch/create', {
+        inputs: [{ from: { id: String(dealId) }, to: { id: String(companyId) }, type: 'deal_to_company' }],
+      });
+    }
+  }
+  // Contacts by email (from attendees array in deal JSON)
+  const attendees = Array.isArray(deal.attendees) ? deal.attendees : [];
+  for (const a of attendees) {
+    if (!a.email) continue;
+    const contactId = await hubspotSearch('contacts', 'email', a.email);
+    if (contactId) {
+      await hubspotRequest('POST', '/crm/v3/associations/deals/contacts/batch/create', {
+        inputs: [{ from: { id: String(dealId) }, to: { id: String(contactId) }, type: 'deal_to_contact' }],
+      });
+    }
+  }
+}
+
 async function createQuoteForDeal(dealId, deal) {
   const expiry = new Date();
   expiry.setDate(expiry.getDate() + 30);
@@ -288,6 +322,9 @@ const server = http.createServer(async (req, res) => {
           deals[idx].status = 'created';
           deals[idx].hubspot_id = result.id;
           deals[idx].hubspot_url = dealUrl;
+
+          // Associate company + contacts (best-effort, won't block deal creation)
+          try { await associateDealCRM(result.id, deal); } catch {}
 
           // Create quote and line items
           const quoteResult = await createQuoteForDeal(result.id, deal);
