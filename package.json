@@ -1,0 +1,12 @@
+{
+  "name": "quinta-deal-review",
+  "version": "1.0.0",
+  "description": "Quinta meeting → HubSpot deal review app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

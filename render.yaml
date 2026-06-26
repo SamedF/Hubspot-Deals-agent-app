@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: quinta-deal-review
+    runtime: node
+    buildCommand: echo "no build needed"
+    startCommand: node server.js
+    plan: free
+    disk:
+      name: deals-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DEALS_DIR
+        value: /data
+      - key: NODE_ENV
+        value: production
+      - key: HUBSPOT_TOKEN
+        sync: false
+      - key: HUBSPOT_OWNER_ID
+        sync: false
+      - key: HUBSPOT_PORTAL
+        sync: false
+      - key: QD_USER
+        sync: false
+      - key: QD_PASS
+        sync: false
+      - key: QD_API_KEY
+        sync: false

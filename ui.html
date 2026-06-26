@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quinta Deal Review</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;color:#111827;min-height:100vh}
+
+/* ── Login ── */
+.lbg{background:#0F172A;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.lcard{background:#fff;border-radius:16px;padding:40px 36px;width:100%;max-width:360px;box-shadow:0 25px 50px rgba(0,0,0,.3)}
+.llogo{width:48px;height:48px;border-radius:12px;background:#4F46E5;color:#fff;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.ltitle{text-align:center;font-size:20px;font-weight:700;margin-bottom:4px}
+.lsub{text-align:center;font-size:13px;color:#9CA3AF;margin-bottom:28px}
+.lfield{margin-bottom:14px}
+.lfield label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:5px}
+.lfield input{width:100%;border:1px solid #E5E7EB;border-radius:8px;padding:10px 12px;font-size:14px;font-family:inherit;outline:none}
+.lfield input:focus{border-color:#4F46E5;box-shadow:0 0 0 3px rgba(79,70,229,.1)}
+.lbtn{width:100%;background:#4F46E5;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:6px}
+.lbtn:hover:not(:disabled){background:#4338CA}
+.lbtn:disabled{background:#A5B4FC;cursor:not-allowed}
+.lerr{background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 12px;color:#991B1B;font-size:13px;margin-bottom:14px;display:none}
+.lerr.show{display:block}
+
+/* ── App shell ── */
+#app{display:none;min-height:100vh;background:#F9FAFB}
+header{background:#fff;border-bottom:1px solid #E5E7EB;position:sticky;top:0;z-index:10}
+.hi{max-width:780px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+.logo{width:32px;height:32px;border-radius:8px;background:#4F46E5;color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:10px}
+.ht{font-weight:600;font-size:14px}
+.hs{font-size:12px;color:#9CA3AF}
+.hr{display:flex;align-items:center;gap:10px}
+.dot{width:8px;height:8px;border-radius:50%;background:#D1D5DB;transition:background .3s;flex-shrink:0}
+.dot.on{background:#10B981}
+.nbadge{background:#4F46E5;color:#fff;border-radius:99px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;display:none}
+.nbadge.show{display:inline-block}
+.outbtn{background:none;border:none;cursor:pointer;color:#9CA3AF;font-size:12px;padding:4px 8px;border-radius:6px;font-family:inherit}
+.outbtn:hover{background:#F3F4F6;color:#374151}
+
+/* ── Filter tabs ── */
+.ftabs{max-width:780px;margin:0 auto;padding:14px 16px 0;display:flex;gap:6px;flex-wrap:wrap}
+.ftab{background:#F3F4F6;color:#6B7280;border:none;border-radius:99px;padding:5px 14px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;white-space:nowrap}
+.ftab:hover{background:#E5E7EB}
+.ftab.active{background:#4F46E5;color:#fff}
+.fcnt{background:rgba(255,255,255,.25);border-radius:99px;padding:0 5px;margin-left:3px;font-size:11px}
+.fpanel{max-width:780px;margin:0 auto;padding:12px 16px}
+
+/* ── Calendar ── */
+.cal{background:#fff;border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;margin-bottom:14px}
+.cal-nav{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid #F3F4F6}
+.cal-nav span{font-weight:600;font-size:14px}
+.cal-nav button{background:none;border:1px solid #E5E7EB;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:18px;line-height:1;color:#6B7280;display:flex;align-items:center;justify-content:center}
+.cal-nav button:hover{background:#F3F4F6}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr)}
+.cal-dh{text-align:center;font-size:11px;font-weight:600;color:#9CA3AF;padding:7px 0 5px;border-bottom:1px solid #F9FAFB}
+.cday{position:relative;height:38px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#374151;user-select:none}
+.cday:hover{background:#F3F4F6}
+.cday.today{font-weight:700;color:#4F46E5}
+.cday.has{font-weight:600}
+.cday.sel{background:#4F46E5 !important;color:#fff;border-radius:6px}
+.cdot{width:4px;height:4px;border-radius:50%;background:#4F46E5;position:absolute;bottom:4px}
+.cday.sel .cdot{background:rgba(255,255,255,.7)}
+.dclr{font-size:12px;color:#6B7280;cursor:pointer;text-decoration:underline;margin-bottom:10px;display:inline-block}
+
+/* ── Pills ── */
+.slbl{font-size:11px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.pill{background:#F3F4F6;color:#374151;border:1px solid #E5E7EB;border-radius:99px;padding:4px 12px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:#4F46E5;color:#4F46E5}
+.pill.active{background:#EEF2FF;color:#4F46E5;border-color:#4F46E5;font-weight:600}
+
+/* ── Cards ── */
+.cards{max-width:780px;margin:0 auto;padding:4px 16px 32px}
+.grph{font-size:12px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px;display:flex;align-items:center;gap:8px}
+.grc{background:#E5E7EB;color:#6B7280;border-radius:99px;padding:1px 7px;font-size:11px;font-weight:600}
+.card{background:#fff;border:1px solid #E5E7EB;border-radius:12px;margin-bottom:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.ch{padding:12px 16px;border-bottom:1px solid #F3F4F6;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.cm{min-width:0;flex:1}
+.cb{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px}
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600}
+.bp{background:#FEF3C7;color:#92400E}
+.bc{background:#D1FAE5;color:#065F46}
+.bs{background:#F3F4F6;color:#6B7280}
+.ch-high{color:#059669;font-size:11px;font-weight:600}
+.ch-med{color:#D97706;font-size:11px;font-weight:600}
+.ch-low{color:#DC2626;font-size:11px;font-weight:600}
+.cmeta{font-size:12px;color:#9CA3AF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cf{padding:14px 16px;display:grid;grid-template-columns:1fr;gap:10px}
+.r2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fl label{display:block;font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.fv{background:#F9FAFB;border:1px solid #F3F4F6;border-radius:6px;padding:7px 10px;font-size:13px;color:#111827;min-height:32px;word-break:break-word;line-height:1.5}
+.fv.mu{min-height:54px}
+.fv ul{list-style:none;padding:0}
+.fv li{padding:2px 0 2px 14px;position:relative}
+.fv li::before{content:"\2022";position:absolute;left:0;color:#D1D5DB}
+input[type=text],input[type=number],select,textarea{width:100%;font-size:13px;font-family:inherit;border:1px solid #E5E7EB;border-radius:6px;padding:7px 10px;outline:none;color:#111827;background:#fff}
+input:focus,select:focus,textarea:focus{border-color:#4F46E5;box-shadow:0 0 0 3px rgba(79,70,229,.1)}
+textarea{resize:vertical;min-height:70px;line-height:1.5}
+.cfoot{padding:10px 16px;background:#F9FAFB;border-top:1px solid #F3F4F6;display:flex;align-items:center;justify-content:space-between}
+.cfoot-ok{padding:10px 16px;background:#F0FDF4;border-top:1px solid #BBF7D0}
+.btnp{background:#4F46E5;color:#fff;border:none;border-radius:8px;padding:7px 18px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+.btnp:hover:not(:disabled){background:#4338CA}
+.btnp:disabled{background:#A5B4FC;cursor:not-allowed}
+.btng{background:transparent;color:#6B7280;border:none;border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;font-family:inherit}
+.btng:hover{background:#F3F4F6}
+.btne{background:transparent;color:#4F46E5;border:none;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit}
+.btne:hover{background:#EEF2FF}
+.hsl{font-size:12px;color:#16A34A;font-weight:500;text-decoration:none}
+.hsl:hover{text-decoration:underline}
+.empty{text-align:center;padding:60px 20px;color:#9CA3AF}
+.empty strong{display:block;font-size:14px;color:#6B7280;margin-bottom:6px}
+code{background:#F3F4F6;padding:2px 5px;border-radius:4px;font-size:11px;font-family:monospace}
+.errmsg{background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;color:#991B1B;font-size:13px;margin-bottom:12px}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1F2937;color:#fff;border-radius:10px;padding:10px 20px;font-size:13px;font-weight:500;opacity:0;transition:all .3s;z-index:100;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login">
+  <div class="lbg">
+    <div class="lcard">
+      <div class="llogo">Q</div>
+      <div class="ltitle">Quinta Deal Review</div>
+      <div class="lsub">Sign in to continue</div>
+      <div class="lerr" id="lerr"></div>
+      <div class="lfield"><label>Username</label><input id="luser" type="text" autocomplete="username" placeholder="quinta"></div>
+      <div class="lfield"><label>Password</label><input id="lpass" type="password" autocomplete="current-password"></div>
+      <button class="lbtn" id="lbtn" onclick="doLogin()">Sign in</button>
+    </div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <header>
+    <div class="hi">
+      <div style="display:flex;align-items:center">
+        <div class="logo">Q</div>
+        <div>
+          <div class="ht">Quinta Deal Review</div>
+          <div class="hs" id="sub">Loading...</div>
+        </div>
+      </div>
+      <div class="hr">
+        <div class="dot" id="dot" title="Live connection"></div>
+        <div class="nbadge" id="nbadge" onclick="onBadge()">New deals</div>
+        <button class="outbtn" onclick="doLogout()">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="ftabs">
+    <button class="ftab active" id="tab-all"     onclick="setTab('all')">All <span class="fcnt" id="cnt-all">0</span></button>
+    <button class="ftab"        id="tab-date"    onclick="setTab('date')">By Date</button>
+    <button class="ftab"        id="tab-client"  onclick="setTab('client')">By Client</button>
+    <button class="ftab"        id="tab-product" onclick="setTab('product')">By Product</button>
+  </div>
+
+  <div class="fpanel" id="fpanel"></div>
+  <div class="cards" id="cards"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var deals = [];
+var tab = 'all';
+var selDate = null;
+var selClient = null;
+var selProduct = null;
+var calY = new Date().getFullYear();
+var calM = new Date().getMonth();
+var todayStr = new Date().toISOString().slice(0,10);
+var es = null;
+
+var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+var DAYS = ['Mo','Tu','We','Th','Fr','Sa','Su'];
+var PL = {sales:'Sales',upsell:'Upsell',cs:'CS'};
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+function doLogin() {
+  var u = document.getElementById('luser').value.trim();
+  var p = document.getElementById('lpass').value;
+  var btn = document.getElementById('lbtn');
+  var err = document.getElementById('lerr');
+  if (!u || !p) return;
+  btn.disabled = true; btn.textContent = 'Signing in...'; err.className = 'lerr';
+  fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:u,pass:p})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){showApp();}
+      else{err.textContent=res.d.error||'Invalid credentials';err.className='lerr show';btn.disabled=false;btn.textContent='Sign in';}
+    }).catch(function(){
+      err.textContent='Cannot reach server';err.className='lerr show';btn.disabled=false;btn.textContent='Sign in';
+    });
+}
+
+function doLogout() {
+  fetch('/api/logout',{method:'POST'}).then(function(){
+    if(es){es.close();es=null;}
+    document.getElementById('app').style.display='none';
+    document.getElementById('login').style.display='block';
+    document.getElementById('lpass').value='';
+  });
+}
+
+window.addEventListener('load',function(){
+  document.getElementById('lpass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin();});
+  document.getElementById('luser').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('lpass').focus();});
+  fetch('/api/deals').then(function(r){
+    if(r.ok)return r.json().then(function(d){deals=Array.isArray(d)?d:[];showApp();});
+  }).catch(function(){});
+});
+
+function showApp(){
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='block';
+  loadDeals();
+  connectSSE();
+}
+
+// ── Data ──────────────────────────────────────────────────────────────────────
+
+function loadDeals(){
+  fetch('/api/deals').then(function(r){
+    if(r.status===401){doLogout();return;}
+    return r.json();
+  }).then(function(d){
+    if(!d)return;
+    deals=Array.isArray(d)?d:[];
+    render();
+  });
+}
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
+
+function connectSSE(){
+  if(es)es.close();
+  es=new EventSource('/api/events');
+  es.addEventListener('connected',function(){document.getElementById('dot').classList.add('on');});
+  es.addEventListener('update',function(){
+    document.getElementById('nbadge').classList.add('show');
+    fetch('/api/deals').then(function(r){return r.json();}).then(function(d){
+      deals=Array.isArray(d)?d:[];
+      document.getElementById('nbadge').classList.remove('show');
+      render();
+      showToast('New deals arrived');
+    });
+  });
+  es.onerror=function(){
+    document.getElementById('dot').classList.remove('on');
+    setTimeout(connectSSE,5000);
+  };
+}
+
+function onBadge(){
+  document.getElementById('nbadge').classList.remove('show');
+  loadDeals();
+}
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+
+function setTab(t){
+  tab=t;
+  if(t!=='date')selDate=null;
+  if(t!=='client')selClient=null;
+  if(t!=='product')selProduct=null;
+  ['all','date','client','product'].forEach(function(x){
+    document.getElementById('tab-'+x).classList.toggle('active',x===t);
+  });
+  render();
+}
+
+function getFiltered(){
+  var out=deals.slice();
+  if(tab==='date'&&selDate)out=out.filter(function(d){return d.meeting_date&&d.meeting_date.slice(0,10)===selDate;});
+  if(tab==='client'&&selClient)out=out.filter(function(d){return d.company_name===selClient;});
+  if(tab==='product'&&selProduct)out=out.filter(function(d){return Array.isArray(d.products)&&d.products.indexOf(selProduct)!==-1;});
+  return out;
+}
+
+// ── Calendar ──────────────────────────────────────────────────────────────────
+
+function buildCal(){
+  var ds=new Set(deals.map(function(d){return d.meeting_date?d.meeting_date.slice(0,10):null;}).filter(Boolean));
+  var first=new Date(calY,calM,1).getDay();
+  var offset=(first+6)%7; // Mon-start
+  var daysInMonth=new Date(calY,calM+1,0).getDate();
+  var h='<div class="cal"><div class="cal-nav"><button onclick="prevM()">&#8249;</button><span>'+MONTHS[calM]+' '+calY+'</span><button onclick="nextM()">&#8250;</button></div><div class="cal-grid">';
+  DAYS.forEach(function(d){h+='<div class="cal-dh">'+d+'</div>';});
+  for(var i=0;i<offset;i++)h+='<div></div>';
+  for(var d=1;d<=daysInMonth;d++){
+    var s=calY+'-'+p2(calM+1)+'-'+p2(d);
+    var c='cday'+(ds.has(s)?' has':'')+(s===todayStr?' today':'')+(s===selDate?' sel':'');
+    h+='<div class="'+c+'" onclick="pickDate(\''+s+'\')">'+d+(ds.has(s)?'<span class="cdot"></span>':'')+'</div>';
+  }
+  return h+'</div></div>';
+}
+
+function prevM(){calM--;if(calM<0){calM=11;calY--;}renderPanel();}
+function nextM(){calM++;if(calM>11){calM=0;calY++;}renderPanel();}
+function pickDate(s){selDate=selDate===s?null:s;renderPanel();renderCards();}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+function render(){updateSub();renderPanel();renderCards();}
+
+function updateSub(){
+  var p=0,c=0,s=0;
+  deals.forEach(function(d){if(d.status==='pending')p++;else if(d.status==='created')c++;else if(d.status==='skipped')s++;});
+  document.getElementById('sub').textContent=p+' pending  ·  '+c+' created  ·  '+s+' skipped';
+  document.getElementById('cnt-all').textContent=deals.length;
+}
+
+function renderPanel(){
+  var el=document.getElementById('fpanel');
+  if(tab==='date'){
+    var h=buildCal();
+    if(selDate)h+='<span class="dclr" onclick="pickDate(null)">× Clear filter ('+selDate+')</span>';
+    el.innerHTML=h;
+  } else if(tab==='client'){
+    var counts={};
+    deals.forEach(function(d){if(d.company_name)counts[d.company_name]=(counts[d.company_name]||0)+1;});
+    var cl=Object.keys(counts).sort();
+    if(!cl.length){el.innerHTML='<div class="slbl">No clients yet</div>';return;}
+    var h='<div class="slbl">Filter by client</div><div class="pills">';
+    cl.forEach(function(c){h+='<div class="pill'+(c===selClient?' active':'')+'" onclick="pickClient(\''+ea(c)+'\')">'+ex(c)+' <span style="opacity:.5">'+counts[c]+'</span></div>';});
+    el.innerHTML=h+'</div>';
+  } else if(tab==='product'){
+    var pc={};
+    deals.forEach(function(d){if(Array.isArray(d.products))d.products.forEach(function(p){pc[p]=(pc[p]||0)+1;});});
+    var pl=Object.keys(pc).sort();
+    if(!pl.length){el.innerHTML='<div class="slbl">No products yet</div>';return;}
+    var h='<div class="slbl">Filter by product</div><div class="pills">';
+    pl.forEach(function(p){h+='<div class="pill'+(p===selProduct?' active':'')+'" onclick="pickProduct(\''+ea(p)+'\')">'+ex(p)+' <span style="opacity:.5">'+pc[p]+'</span></div>';});
+    el.innerHTML=h+'</div>';
+  } else {
+    el.innerHTML='';
+  }
+}
+
+function pickClient(c){selClient=selClient===c?null:c;renderPanel();renderCards();}
+function pickProduct(p){selProduct=selProduct===p?null:p;renderPanel();renderCards();}
+
+function renderCards(){
+  var filtered=getFiltered();
+  var el=document.getElementById('cards');
+  if(!deals.length){el.innerHTML='<div class="empty"><strong>No deals yet</strong>Run <code>/meeting-deals</code> in Claude Code</div>';return;}
+  if(!filtered.length){el.innerHTML='<div class="empty"><strong>No deals match</strong>Try a different filter</div>';return;}
+  var html='';
+  if(tab==='all'||tab==='date'){
+    var sorted=filtered.slice().sort(function(a,b){return (b.meeting_date||'').localeCompare(a.meeting_date||'');});
+    var grp={},ord=[];
+    sorted.forEach(function(d){
+      var k=d.meeting_date?d.meeting_date.slice(0,10):'Unknown';
+      if(!grp[k]){grp[k]=[];ord.push(k);}
+      grp[k].push(d);
+    });
+    ord.forEach(function(k){
+      var lbl=k===todayStr?'Today':k;
+      html+='<div class="grph">'+ex(lbl)+'<span class="grc">'+grp[k].length+'</span></div>';
+      grp[k].forEach(function(d){html+=cardHtml(d,deals.indexOf(d));});
+    });
+  } else if(tab==='client'){
+    if(selClient){
+      filtered.forEach(function(d){html+=cardHtml(d,deals.indexOf(d));});
+    } else {
+      var cg={},co=[];
+      filtered.forEach(function(d){var k=d.company_name||'Unknown';if(!cg[k]){cg[k]=[];co.push(k);}cg[k].push(d);});
+      co.forEach(function(c){html+='<div class="grph">'+ex(c)+'<span class="grc">'+cg[c].length+'</span></div>';cg[c].forEach(function(d){html+=cardHtml(d,deals.indexOf(d));});});
+    }
+  } else if(tab==='product'){
+    if(selProduct){
+      filtered.forEach(function(d){html+=cardHtml(d,deals.indexOf(d));});
+    } else {
+      var pg={},po=[];
+      deals.forEach(function(d){
+        if(!Array.isArray(d.products)||!d.products.length)return;
+        d.products.forEach(function(p){if(!pg[p]){pg[p]=[];po.push(p);}if(pg[p].indexOf(d)===-1)pg[p].push(d);});
+      });
+      // dedupe order
+      var seen={};po=po.filter(function(p){if(seen[p])return false;seen[p]=1;return true;}).sort();
+      po.forEach(function(p){
+        var items=(pg[p]||[]).filter(function(d){return getFiltered().indexOf(d)!==-1||!selProduct;});
+        if(!items.length)return;
+        html+='<div class="grph">'+ex(p)+'<span class="grc">'+items.length+'</span></div>';
+        items.forEach(function(d){html+=cardHtml(d,deals.indexOf(d));});
+      });
+    }
+  }
+  el.innerHTML=html;
+}
+
+// ── Card ──────────────────────────────────────────────────────────────────────
+
+function cardHtml(deal,idx){
+  var ed=!!deal._editing;
+  var ip=deal.status==='pending';
+  var conf=Math.round((deal.confidence||0)*100);
+  var confCls=conf>=80?'ch-high':conf>=65?'ch-med':'ch-low';
+  var badgeCls=deal.status==='created'?'badge bc':deal.status==='skipped'?'badge bs':'badge bp';
+  var badgeTxt=deal.status==='created'?'✓ Created':deal.status==='skipped'?'Skipped':'Pending';
+  var prods=Array.isArray(deal.products)?deal.products.join(', '):(deal.products||'');
+  var nsList=Array.isArray(deal.next_steps)?deal.next_steps:(deal.next_steps?[deal.next_steps]:[]);
+  var nsText=nsList.join('\n');
+  var nsHtml=nsList.length?'<ul>'+nsList.map(function(s){return'<li>'+ex(s)+'</li>';}).join('')+'</ul>':'<span style="color:#D1D5DB">-</span>';
+  var pipeLabel=PL[deal.pipeline]||deal.pipeline||'';
+  var editBtn=ip?'<button class="btne" onclick="toggleEdit('+idx+')">'+(ed?'Done':'Edit')+'</button>':'';
+  var meta='📅 '+ex(deal.meeting_date?String(deal.meeting_date).slice(0,10):'?')+'  ·  '+ex(deal.meeting_subject||'');
+
+  var nameF=ed?'<input type="text" value="'+ea(deal.deal_name||'')+'" onchange="upd('+idx+',\'deal_name\',this.value)">':'<div class="fv">'+ex(deal.deal_name||'-')+'</div>';
+  var compF=ed?'<input type="text" value="'+ea(deal.company_name||'')+'" onchange="upd('+idx+',\'company_name\',this.value)">':'<div class="fv">'+ex(deal.company_name||'-')+'</div>';
+  var amtF=ed?'<input type="number" value="'+ea(String(deal.estimated_amount||''))+'" placeholder="EUR/mo" onchange="upd('+idx+',\'estimated_amount\',this.value)">':'<div class="fv">'+(deal.estimated_amount?'EUR '+deal.estimated_amount:'<span style="color:#D1D5DB">-</span>')+'</div>';
+  var prodF=ed?'<input type="text" value="'+ea(prods)+'" placeholder="Comma-separated" onchange="upd('+idx+',\'products\',this.value)">':'<div class="fv">'+ex(prods||'-')+'</div>';
+  var pipeOpts=['sales','upsell','cs'].map(function(k){return'<option value="'+k+'"'+(deal.pipeline===k?' selected':'')+'>'+PL[k]+'</option>';}).join('');
+  var pipeF=ed?'<select onchange="upd('+idx+',\'pipeline\',this.value)">'+pipeOpts+'</select>':'<div class="fv">'+ex(pipeLabel)+'</div>';
+  var sumF=ed?'<textarea onchange="upd('+idx+',\'summary\',this.value)">'+ex(deal.summary||'')+'</textarea>':'<div class="fv mu">'+ex(deal.summary||'')+'</div>';
+  var nsF=ed?'<textarea rows="4" placeholder="One per line" onchange="upd('+idx+',\'next_steps_text\',this.value)">'+ex(nsText)+'</textarea>':'<div class="fv mu">'+nsHtml+'</div>';
+
+  var footer='';
+  if(ip)footer='<div class="cfoot"><button class="btng" onclick="skipDeal('+idx+')">Skip</button><button class="btnp" id="cbtn'+idx+'" onclick="createDeal('+idx+')">Create in HubSpot &rarr;</button></div>';
+  else if(deal.hubspot_url)footer='<div class="cfoot-ok"><a class="hsl" href="'+ea(deal.hubspot_url)+'" target="_blank">View in HubSpot &rarr;</a></div>';
+
+  return '<div class="card" id="card'+idx+'">'
+    +'<div class="ch"><div class="cm"><div class="cb"><span class="'+badgeCls+'">'+badgeTxt+'</span><span class="'+confCls+'">'+conf+'%</span></div><div class="cmeta">'+meta+'</div></div><div>'+editBtn+'</div></div>'
+    +'<div class="cf">'
+    +'<div class="fl"><label>Deal name</label>'+nameF+'</div>'
+    +'<div class="r2"><div class="fl"><label>Company</label>'+compF+'</div><div class="fl"><label>Amount</label>'+amtF+'</div></div>'
+    +'<div class="r2"><div class="fl"><label>Pipeline</label>'+pipeF+'</div><div class="fl"><label>Products</label>'+prodF+'</div></div>'
+    +'<div class="fl"><label>Summary</label>'+sumF+'</div>'
+    +'<div class="fl"><label>Next steps</label>'+nsF+'</div>'
+    +'</div>'+footer+'</div>';
+}
+
+// ── Mutations ─────────────────────────────────────────────────────────────────
+
+function toggleEdit(idx){deals[idx]._editing=!deals[idx]._editing;render();}
+
+function upd(idx,key,val){
+  if(key==='next_steps_text'){deals[idx].next_steps=val.split('\n').map(function(s){return s.trim();}).filter(Boolean);}
+  else if(key==='products'){deals[idx].products=val.split(',').map(function(s){return s.trim();}).filter(Boolean);}
+  else if(key==='estimated_amount'){deals[idx].estimated_amount=val?parseFloat(val):null;}
+  else{deals[idx][key]=val;}
+  var copy={};
+  Object.keys(deals[idx]).forEach(function(k){if(k!=='_editing')copy[k]=deals[idx][k];});
+  fetch('/api/deals/'+idx,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(copy)});
+}
+
+function createDeal(idx){
+  var btn=document.getElementById('cbtn'+idx);
+  if(btn){btn.textContent='Creating...';btn.disabled=true;}
+  fetch('/api/deals/'+idx+'/create',{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){alert('HubSpot error: '+d.error);if(btn){btn.textContent='Create in HubSpot →';btn.disabled=false;}}
+      else{deals[idx].status='created';deals[idx].hubspot_id=d.id;deals[idx].hubspot_url=d.url;delete deals[idx]._editing;render();showToast('Deal created');}
+    }).catch(function(e){alert('Error: '+e.message);if(btn){btn.textContent='Create in HubSpot →';btn.disabled=false;}});
+}
+
+function skipDeal(idx){
+  fetch('/api/deals/'+idx+'/skip',{method:'POST'}).then(function(){deals[idx].status='skipped';delete deals[idx]._editing;render();});
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+
+function ex(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function ea(s){return String(s).replace(/"/g,'&quot;');}
+function p2(n){return String(n).padStart(2,'0');}
+
+function showToast(msg){
+  var t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(function(){t.classList.remove('show');},2800);
+}
+</script>
+</body>
+</html>
