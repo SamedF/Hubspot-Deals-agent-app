@@ -591,54 +591,40 @@ const server = http.createServer(async (req, res) => {
     return json(res, { emails: emails_out });
   }
 
-  // Structured HubSpot data (tasks, inactive deals, upcoming closes, meeting next steps)
+  // HubSpot email engagements (emails logged in HubSpot CRM, last 72h)
   if (method === 'GET' && pathname === '/api/tasks/hubspot-data') {
-    const sevenDaysAgo   = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
-    const sevenDaysAhead = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+    const since = Date.now() - 72 * 3600 * 1000;
+    const r = await hubspotRequest('POST', '/crm/v3/objects/emails/search', {
+      filterGroups: [{ filters: [
+        { propertyName: 'hs_timestamp', operator: 'GTE', value: String(since) },
+      ]}],
+      properties: ['hs_email_subject', 'hs_email_text', 'hs_email_direction',
+        'hs_email_status', 'hs_timestamp', 'hs_email_from_email',
+        'hs_email_from_firstname', 'hs_email_from_lastname',
+        'hs_email_to_email', 'hubspot_owner_id'],
+      sorts: [{ propertyName: 'hs_timestamp', direction: 'DESCENDING' }],
+      limit: 100,
+    }).catch(() => null);
 
-    const [hsTasksR, dealsR] = await Promise.all([
-      hubspotRequest('GET',
-        '/crm/v3/objects/tasks?properties=hs_task_subject,hs_task_body,hs_task_status,hs_timestamp,hs_task_priority&limit=100&archived=false'
-      ).catch(() => null),
-      hubspotRequest('POST', '/crm/v3/objects/deals/search', {
-        filterGroups: [{ filters: [
-          { propertyName: 'dealstage', operator: 'NEQ', value: 'closedwon' },
-          { propertyName: 'dealstage', operator: 'NEQ', value: 'closedlost' },
-        ]}],
-        properties: ['dealname', 'closedate', 'hs_lastmodifieddate', 'amount'],
-        limit: 100,
-      }).catch(() => null),
-    ]);
-
-    const openTasks = (hsTasksR?.results || [])
-      .filter(t => t.properties?.hs_task_status !== 'COMPLETED')
-      .map(t => ({ id: t.id,
-        subject: t.properties?.hs_task_subject || '',
-        body: t.properties?.hs_task_body || '',
-        due: t.properties?.hs_timestamp || '',
-        priority: t.properties?.hs_task_priority || 'NONE',
-      }));
-
-    const deals = dealsR?.results || [];
-    const inactiveDeals = deals.filter(d =>
-      (d.properties?.hs_lastmodifieddate || '').slice(0, 10) < sevenDaysAgo
-    ).map(d => ({ id: d.id, name: d.properties?.dealname || '',
-      last_activity: (d.properties?.hs_lastmodifieddate || '').slice(0, 10),
-      close_date: d.properties?.closedate || '', amount: d.properties?.amount || '' }));
-
-    const upcomingCloses = deals.filter(d => {
-      const cd = d.properties?.closedate;
-      return cd && cd <= sevenDaysAhead;
-    }).map(d => ({ id: d.id, name: d.properties?.dealname || '',
-      close_date: d.properties?.closedate || '', amount: d.properties?.amount || '' }));
+    const emails = (r?.results || []).map(e => ({
+      id: e.id,
+      subject: e.properties?.hs_email_subject || '(no subject)',
+      preview: (e.properties?.hs_email_text || '').slice(0, 400),
+      direction: e.properties?.hs_email_direction || '',
+      status: e.properties?.hs_email_status || '',
+      timestamp: e.properties?.hs_timestamp || '',
+      from_email: e.properties?.hs_email_from_email || '',
+      from_name: [e.properties?.hs_email_from_firstname, e.properties?.hs_email_from_lastname]
+        .filter(Boolean).join(' '),
+      to_email: e.properties?.hs_email_to_email || '',
+    }));
 
     const meetingNextSteps = readDeals()
       .filter(d => d.status === 'created' && Array.isArray(d.next_steps) && d.next_steps.length)
       .map(d => ({ deal_name: d.deal_name, company: d.company_name,
         meeting_date: d.meeting_date, next_steps: d.next_steps }));
 
-    return json(res, { open_tasks: openTasks, inactive_deals: inactiveDeals,
-      upcoming_closes: upcomingCloses, meeting_next_steps: meetingNextSteps });
+    return json(res, { emails, meeting_next_steps: meetingNextSteps });
   }
 
   // Task actions: /done, /dismiss

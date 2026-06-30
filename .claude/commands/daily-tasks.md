@@ -1,6 +1,6 @@
 # Generate daily tasks from emails, meetings, and HubSpot
 
-Scans the last 48 hours of emails, open HubSpot tasks, inactive deals, and meeting next steps to produce a prioritized task list.
+Scans the last 48–72 hours of email exchanges across two sources — Microsoft 365 (Office 365 inbox) and HubSpot (emails logged in the CRM) — plus meeting next steps, to produce a prioritized follow-up task list.
 
 ## STEP 0 — Get config
 
@@ -21,38 +21,39 @@ console.log(JSON.stringify({apiKey,serverUrl}));
 
 Run both calls with the Bash tool:
 
-**Emails (last 48h, external only):**
+**Office 365 emails (last 48h, external only):**
 ```bash
 curl -s -H "X-API-KEY: <apiKey>" "<serverUrl>/api/tasks/email-data"
 ```
 
-**HubSpot + meeting next steps:**
+**HubSpot emails + meeting next steps (last 72h):**
 ```bash
 curl -s -H "X-API-KEY: <apiKey>" "<serverUrl>/api/tasks/hubspot-data"
 ```
 
-Tell the user: "X emails found, Y HubSpot tasks, Z inactive deals."
+Tell the user: "X Office 365 emails found, Y HubSpot emails found, Z meeting next steps."
 
 ---
 
-## STEP 2 — Analyze emails
+## STEP 2 — Analyze all email exchanges
 
-For each email, decide if it warrants a task. Create a task if ANY of:
-- The email is from an external contact and I haven't replied (is the last in a thread from someone else)
-- The body contains an explicit ask, question, or request directed at me
-- I previously said "I'll send", "I'll check", "I'll get back to you", "je vous envoie", etc.
+Apply the same logic to **both** sources (Office 365 emails and HubSpot emails). For each email, create a task if ANY of:
+- An external contact sent a message and has not received a reply yet (their email is the last in the exchange)
+- The email body contains an explicit ask, question, or request directed at me
+- I (or a colleague) previously wrote "I'll send", "I'll check", "I'll get back to you", "je vous envoie", "je reviens vers vous", "I'll follow up", etc. — and no follow-up is visible
+- A prospect or client hasn't heard back after an initial outreach
 
-Skip: newsletters, automated notifications, out-of-office, internal emails, read receipts.
+For HubSpot emails, also look at `direction`:
+- `INCOMING_EMAIL` = received from a contact → potential unanswered inbound
+- `EMAIL` = sent by us → check if it was a promise/commitment with no visible follow-up
+
+Skip: newsletters, automated notifications, out-of-office replies, internal emails (quinta.im / quicktext.im), read receipts, booking confirmations.
+
+Deduplicate: if the same thread appears in both Office 365 and HubSpot, create only one task.
 
 ---
 
-## STEP 3 — Convert HubSpot + meeting data
-
-**From `open_tasks`:** one task per item, `source: "hubspot"`, `hubspot_task_id: id`
-
-**From `inactive_deals`** (no activity in 7+ days): task = "Follow up: [deal name]", `source: "hubspot"`, priority: medium
-
-**From `upcoming_closes`** (closing within 7 days): task = "Prepare close: [deal name] — closes [date]", `source: "hubspot"`, priority: high
+## STEP 3 — Convert meeting next steps
 
 **From `meeting_next_steps`:** one task per next step, `source: "meeting"`, `related_to: company`
 
@@ -83,13 +84,13 @@ Each task object must follow this schema:
 {
   "id": "task_<timestamp>_<index>",
   "status": "todo",
-  "source": "email|meeting|hubspot",
-  "title": "Short action title",
+  "source": "email|hubspot-email|meeting",
+  "title": "Short action title (e.g. 'Reply to Jean-Pierre re: pricing')",
   "body": "Context or details (1-2 sentences)",
   "related_to": "Company or person name",
   "due_date": "YYYY-MM-DD or null",
   "priority": "high|medium|low",
-  "hubspot_task_id": "HubSpot task id if source=hubspot, else null",
+  "hubspot_email_id": "HubSpot email object id if source=hubspot-email, else null",
   "email_thread_id": "conversation_id if source=email, else null",
   "created_at": "<current ISO timestamp>"
 }
@@ -113,10 +114,10 @@ Tell the user:
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ DONE
-Tasks generated  : X
-  📧 Email       : X
-  🎯 Meeting     : X
-  💼 HubSpot     : X
+Tasks generated      : X
+  📧 Office 365      : X
+  💼 HubSpot emails  : X
+  🎯 Meeting steps   : X
 Open the Tasks tab at http://localhost:3333
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
