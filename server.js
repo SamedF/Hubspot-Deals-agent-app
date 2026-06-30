@@ -28,7 +28,8 @@ const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
 const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID;
 const APP_URL = (process.env.APP_URL || 'http://localhost:' + PORT).replace(/\/$/, '');
 const TOKENS_FILE = path.join(process.env.DEALS_DIR || __dirname, 'tokens.json');
-const OAUTH_SCOPES = 'Calendars.Read Files.Read User.Read offline_access';
+const TASKS_FILE  = path.join(process.env.DEALS_DIR || __dirname, 'tasks.json');
+const OAUTH_SCOPES = 'Calendars.Read Files.Read Mail.Read User.Read offline_access';
 const INTERNAL_DOMAINS = ['quinta.im', 'quicktext.im'];
 
 const PIPELINES = {
@@ -72,7 +73,7 @@ function broadcast(event) {
 let broadcastTimer = null;
 try {
   fs.watch(__dirname, (event, filename) => {
-    if (filename === 'pending_deals.json') {
+    if (filename === 'pending_deals.json' || filename === 'tasks.json') {
       clearTimeout(broadcastTimer);
       broadcastTimer = setTimeout(() => broadcast('update'), 800);
     }
@@ -87,6 +88,11 @@ function readDeals() {
 function writeDeals(deals) {
   fs.writeFileSync(DEALS_FILE, JSON.stringify(deals, null, 2));
 }
+
+function readTasks() {
+  try { return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8')); } catch { return []; }
+}
+function writeTasks(tasks) { fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2)); }
 
 // ── Microsoft OAuth tokens ────────────────────────────────────────────────────
 function readTokens() {
@@ -448,6 +454,131 @@ const server = http.createServer(async (req, res) => {
       }
     }
     return json(res, { meetings });
+  }
+
+  // ── Tasks ────────────────────────────────────────────────────────────────────
+
+  if (method === 'GET' && pathname === '/api/tasks') {
+    return json(res, readTasks());
+  }
+
+  if (method === 'POST' && pathname === '/api/tasks') {
+    const body = await readBody(req);
+    try {
+      const incoming = JSON.parse(body);
+      const newTasks = Array.isArray(incoming) ? incoming : [incoming];
+      const existing = readTasks();
+      writeTasks([...existing.filter(t => t.status !== 'todo'), ...newTasks]);
+      json(res, { ok: true, count: newTasks.length });
+    } catch (e) { json(res, { error: e.message }, 400); }
+    return;
+  }
+
+  // Raw email data for the /daily-tasks agent to analyze
+  if (method === 'GET' && pathname === '/api/tasks/email-data') {
+    const tokens = readTokens();
+    const emails_out = [];
+    for (const email of Object.keys(tokens)) {
+      const token = await getValidToken(email).catch(() => null);
+      if (!token) continue;
+      const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+      const filter = `receivedDateTime ge ${since} and isDraft eq false`;
+      const r = await graphRequest(token,
+        `/me/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead&$orderby=receivedDateTime+desc&$top=60`
+      ).catch(() => null);
+      if (r?.value) {
+        r.value.filter(m => !INTERNAL_DOMAINS.some(d =>
+          (m.from?.emailAddress?.address || '').toLowerCase().endsWith('@' + d)
+        )).forEach(m => emails_out.push({
+          id: m.id, conversation_id: m.conversationId,
+          subject: m.subject || '(no subject)',
+          from_name: m.from?.emailAddress?.name || '',
+          from_email: m.from?.emailAddress?.address || '',
+          received_at: m.receivedDateTime,
+          preview: m.bodyPreview || '',
+          is_read: m.isRead, account: email,
+        }));
+      }
+    }
+    return json(res, { emails: emails_out });
+  }
+
+  // Structured HubSpot data (tasks, inactive deals, upcoming closes, meeting next steps)
+  if (method === 'GET' && pathname === '/api/tasks/hubspot-data') {
+    const sevenDaysAgo   = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+    const sevenDaysAhead = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+
+    const [hsTasksR, dealsR] = await Promise.all([
+      hubspotRequest('GET',
+        '/crm/v3/objects/tasks?properties=hs_task_subject,hs_task_body,hs_task_status,hs_timestamp,hs_task_priority&limit=100&archived=false'
+      ).catch(() => null),
+      hubspotRequest('POST', '/crm/v3/objects/deals/search', {
+        filterGroups: [{ filters: [
+          { propertyName: 'dealstage', operator: 'NEQ', value: 'closedwon' },
+          { propertyName: 'dealstage', operator: 'NEQ', value: 'closedlost' },
+        ]}],
+        properties: ['dealname', 'closedate', 'hs_lastmodifieddate', 'amount'],
+        limit: 100,
+      }).catch(() => null),
+    ]);
+
+    const openTasks = (hsTasksR?.results || [])
+      .filter(t => t.properties?.hs_task_status !== 'COMPLETED')
+      .map(t => ({ id: t.id,
+        subject: t.properties?.hs_task_subject || '',
+        body: t.properties?.hs_task_body || '',
+        due: t.properties?.hs_timestamp || '',
+        priority: t.properties?.hs_task_priority || 'NONE',
+      }));
+
+    const deals = dealsR?.results || [];
+    const inactiveDeals = deals.filter(d =>
+      (d.properties?.hs_lastmodifieddate || '').slice(0, 10) < sevenDaysAgo
+    ).map(d => ({ id: d.id, name: d.properties?.dealname || '',
+      last_activity: (d.properties?.hs_lastmodifieddate || '').slice(0, 10),
+      close_date: d.properties?.closedate || '', amount: d.properties?.amount || '' }));
+
+    const upcomingCloses = deals.filter(d => {
+      const cd = d.properties?.closedate;
+      return cd && cd <= sevenDaysAhead;
+    }).map(d => ({ id: d.id, name: d.properties?.dealname || '',
+      close_date: d.properties?.closedate || '', amount: d.properties?.amount || '' }));
+
+    const meetingNextSteps = readDeals()
+      .filter(d => d.status === 'created' && Array.isArray(d.next_steps) && d.next_steps.length)
+      .map(d => ({ deal_name: d.deal_name, company: d.company_name,
+        meeting_date: d.meeting_date, next_steps: d.next_steps }));
+
+    return json(res, { open_tasks: openTasks, inactive_deals: inactiveDeals,
+      upcoming_closes: upcomingCloses, meeting_next_steps: meetingNextSteps });
+  }
+
+  // Task actions: /done, /dismiss
+  const taskMatch = pathname.match(/^\/api\/tasks\/([^/]+)(\/[\w-]+)?$/);
+  if (taskMatch) {
+    const taskId = taskMatch[1];
+    const action = taskMatch[2] || '';
+
+    if (method === 'POST' && action === '/done') {
+      const tasks = readTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return json(res, { error: 'Not found' }, 404);
+      task.status = 'done'; task.done_at = new Date().toISOString();
+      writeTasks(tasks);
+      if (task.hubspot_task_id) {
+        await hubspotRequest('PATCH', `/crm/v3/objects/tasks/${task.hubspot_task_id}`,
+          { properties: { hs_task_status: 'COMPLETED' } }).catch(() => {});
+      }
+      return json(res, { ok: true });
+    }
+
+    if (method === 'POST' && action === '/dismiss') {
+      const tasks = readTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return json(res, { error: 'Not found' }, 404);
+      task.status = 'dismissed'; writeTasks(tasks);
+      return json(res, { ok: true });
+    }
   }
 
   if (method === 'GET' && pathname === '/api/events') {

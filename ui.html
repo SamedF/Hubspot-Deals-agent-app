@@ -112,6 +112,34 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 .empty{text-align:center;padding:60px 20px;color:#9CA3AF}
 .empty strong{display:block;font-size:14px;color:#6B7280;margin-bottom:6px}
 code{background:#F3F4F6;padding:2px 5px;border-radius:4px;font-size:11px;font-family:monospace}
+/* ── Tasks ── */
+.tsrc-email{background:#EFF6FF;color:#1D4ED8}
+.tsrc-meeting{background:#F0FDF4;color:#15803D}
+.tsrc-hubspot{background:#FFF7ED;color:#C2410C}
+.tpri-high{color:#DC2626;font-weight:600;font-size:11px}
+.tpri-medium{color:#D97706;font-weight:600;font-size:11px}
+.tpri-low{color:#6B7280;font-weight:600;font-size:11px}
+.tcard{background:#fff;border:1px solid #E5E7EB;border-radius:12px;margin-bottom:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.tcard.done{opacity:.5}
+.tch{padding:12px 16px 8px;display:flex;align-items:flex-start;gap:10px}
+.tcheck{width:18px;height:18px;border:2px solid #D1D5DB;border-radius:4px;flex-shrink:0;cursor:pointer;margin-top:1px;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.tcheck.checked{background:#10B981;border-color:#10B981;color:#fff}
+.tcheck.checked::after{content:"✓";font-size:11px;font-weight:700}
+.tbody{flex:1;min-width:0}
+.ttitle{font-size:13px;font-weight:600;color:#111827;margin-bottom:3px;line-height:1.4}
+.tcard.done .ttitle{text-decoration:line-through;color:#9CA3AF}
+.tdesc{font-size:12px;color:#6B7280;line-height:1.4;margin-bottom:5px}
+.tmeta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tdue{font-size:11px;color:#9CA3AF}
+.tdue.overdue{color:#DC2626;font-weight:600}
+.tcf{padding:4px 16px 10px 46px;display:flex;gap:8px}
+.tdis{background:none;border:none;color:#D1D5DB;font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px;font-family:inherit}
+.tdis:hover{background:#FEF2F2;color:#DC2626}
+.tsrc-filter{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.tsf{background:#F3F4F6;border:none;border-radius:99px;padding:5px 14px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit}
+.tsf.active{background:#111827;color:#fff}
+.tempty{text-align:center;padding:48px 20px;color:#9CA3AF}
+.tempty strong{display:block;font-size:14px;color:#6B7280;margin-bottom:6px}
 .errmsg{background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 14px;color:#991B1B;font-size:13px;margin-bottom:12px}
 
 /* ── Calendars panel ── */
@@ -181,6 +209,7 @@ code{background:#F3F4F6;padding:2px 5px;border-radius:4px;font-size:11px;font-fa
     <button class="ftab"        id="tab-date"    onclick="setTab('date')">By Date</button>
     <button class="ftab"        id="tab-client"  onclick="setTab('client')">By Client</button>
     <button class="ftab"        id="tab-product" onclick="setTab('product')">By Product</button>
+    <button class="ftab"        id="tab-tasks"   onclick="setTab('tasks')">Tasks <span class="fcnt" id="cnt-tasks">0</span></button>
   </div>
 
   <div class="fpanel" id="fpanel"></div>
@@ -200,6 +229,8 @@ code{background:#F3F4F6;padding:2px 5px;border-radius:4px;font-size:11px;font-fa
 
 <script>
 var deals = [];
+var tasks = [];
+var taskFilter = 'all'; // all|email|meeting|hubspot
 var tab = 'all';
 var selDate = null;
 var selClient = null;
@@ -253,6 +284,7 @@ function showApp(){
   document.getElementById('login').style.display='none';
   document.getElementById('app').style.display='block';
   loadDeals();
+  loadTasks();
   connectSSE();
   loadCalendars();
 }
@@ -278,11 +310,15 @@ function connectSSE(){
   es.addEventListener('connected',function(){document.getElementById('dot').classList.add('on');});
   es.addEventListener('update',function(){
     document.getElementById('nbadge').classList.add('show');
-    fetch('/api/deals').then(function(r){return r.json();}).then(function(d){
-      deals=Array.isArray(d)?d:[];
+    Promise.all([
+      fetch('/api/deals').then(function(r){return r.json();}),
+      fetch('/api/tasks').then(function(r){return r.json();})
+    ]).then(function(results){
+      deals=Array.isArray(results[0])?results[0]:[];
+      tasks=Array.isArray(results[1])?results[1]:[];
       document.getElementById('nbadge').classList.remove('show');
-      render();
-      showToast('New deals arrived');
+      if(tab==='tasks')renderTasksView(); else render();
+      showToast('Updated');
     });
   });
   es.onerror=function(){
@@ -303,10 +339,11 @@ function setTab(t){
   if(t!=='date')selDate=null;
   if(t!=='client')selClient=null;
   if(t!=='product')selProduct=null;
-  ['all','date','client','product'].forEach(function(x){
+  ['all','date','client','product','tasks'].forEach(function(x){
     document.getElementById('tab-'+x).classList.toggle('active',x===t);
   });
-  render();
+  if(t==='tasks'){document.getElementById('cards').innerHTML='';renderTasksView();}
+  else render();
 }
 
 function getFiltered(){
@@ -527,6 +564,106 @@ function showToast(msg){
   var t=document.getElementById('toast');
   t.textContent=msg;t.classList.add('show');
   setTimeout(function(){t.classList.remove('show');},2800);
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+
+function loadTasks(){
+  fetch('/api/tasks').then(function(r){
+    if(r.status===401)return;
+    return r.json();
+  }).then(function(d){
+    if(!d)return;
+    tasks=Array.isArray(d)?d:[];
+    var todo=tasks.filter(function(t){return t.status==='todo';}).length;
+    document.getElementById('cnt-tasks').textContent=todo;
+    if(tab==='tasks')renderTasksView();
+  });
+}
+
+function renderTasksView(){
+  var panel=document.getElementById('fpanel');
+  var cards=document.getElementById('cards');
+  var sources=['all','email','meeting','hubspot'];
+  var counts={all:0,email:0,meeting:0,hubspot:0};
+  tasks.filter(function(t){return t.status==='todo';}).forEach(function(t){
+    counts.all++; if(counts[t.source]!==undefined)counts[t.source]++;
+  });
+  var labels={all:'All',email:'📧 Email',meeting:'🎯 Meeting',hubspot:'💼 HubSpot'};
+  panel.innerHTML='<div class="tsrc-filter">'+sources.map(function(s){
+    return '<button class="tsf'+(taskFilter===s?' active':'')+'" onclick="setTaskFilter(\''+s+'\')">'+labels[s]+' <span style="opacity:.6">'+counts[s]+'</span></button>';
+  }).join('')+'</div>';
+
+  var filtered=tasks.filter(function(t){
+    if(t.status==='dismissed')return false;
+    if(taskFilter!=='all'&&t.source!==taskFilter)return false;
+    return true;
+  });
+
+  if(!filtered.length){
+    cards.innerHTML='<div class="tempty"><strong>No tasks</strong>Run <code>/daily-tasks</code> in Claude Code to generate your task list</div>';
+    return;
+  }
+
+  var todo=filtered.filter(function(t){return t.status==='todo';});
+  var done=filtered.filter(function(t){return t.status==='done';});
+  var html='';
+  if(todo.length){
+    ['high','medium','low',null].forEach(function(pri){
+      var group=todo.filter(function(t){return (t.priority||'low')===(pri||t.priority||'low');});
+      if(pri!==null)group=todo.filter(function(t){return t.priority===pri;});
+      else group=todo.filter(function(t){return !t.priority||t.priority==='low';});
+      if(pri==='low')group=todo.filter(function(t){return t.priority==='low'||!t.priority;});
+      if(pri===null)return;
+      if(!group.length)return;
+      group.forEach(function(t){html+=taskCardHtml(t);});
+    });
+  }
+  if(done.length){
+    html+='<div class="grph" style="margin-top:20px">Completed <span class="grc">'+done.length+'</span></div>';
+    done.forEach(function(t){html+=taskCardHtml(t);});
+  }
+  cards.innerHTML=html;
+}
+
+function setTaskFilter(s){taskFilter=s;renderTasksView();}
+
+function taskCardHtml(t){
+  var srcLabel={email:'📧 Email',meeting:'🎯 Meeting',hubspot:'💼 HubSpot'}[t.source]||t.source;
+  var srcCls={email:'tsrc-email',meeting:'tsrc-meeting',hubspot:'tsrc-hubspot'}[t.source]||'';
+  var priCls={high:'tpri-high',medium:'tpri-medium',low:'tpri-low'}[t.priority]||'tpri-low';
+  var priLabel={high:'High',medium:'Medium',low:'Low'}[t.priority]||'';
+  var done=t.status==='done';
+  var chk='<div class="tcheck'+(done?' checked':'')+'" onclick="'+(done?'':'completeTask(\''+ea(t.id)+'\')' )+'"></div>';
+  var due='';
+  if(t.due_date){
+    var isOverdue=t.due_date<todayStr&&!done;
+    due='<span class="tdue'+(isOverdue?' overdue':'')+'">📅 '+ex(t.due_date)+(isOverdue?' · Overdue':'')+'</span>';
+  }
+  var disDone=done?'':' <button class="tdis" onclick="dismissTask(\''+ea(t.id)+'\')">Dismiss</button>';
+  return '<div class="tcard'+(done?' done':'')+'" id="tcard-'+ea(t.id)+'">'
+    +'<div class="tch">'+chk
+    +'<div class="tbody">'
+    +'<div class="ttitle">'+ex(t.title||'')+'</div>'
+    +(t.body?'<div class="tdesc">'+ex(t.body)+'</div>':'')
+    +'<div class="tmeta"><span class="badge '+srcCls+'">'+srcLabel+'</span>'
+    +(priLabel?'<span class="'+priCls+'">'+priLabel+'</span>':'')
+    +(t.related_to?'<span style="font-size:11px;color:#9CA3AF">'+ex(t.related_to)+'</span>':'')
+    +due+'</div></div></div>'
+    +'<div class="tcf">'+disDone+'</div>'
+    +'</div>';
+}
+
+function completeTask(id){
+  var card=document.getElementById('tcard-'+id);
+  if(card)card.style.opacity='.5';
+  fetch('/api/tasks/'+encodeURIComponent(id)+'/done',{method:'POST'})
+    .then(function(){loadTasks();showToast('Task done');});
+}
+
+function dismissTask(id){
+  fetch('/api/tasks/'+encodeURIComponent(id)+'/dismiss',{method:'POST'})
+    .then(function(){loadTasks();showToast('Dismissed');});
 }
 
 // ── Calendars ─────────────────────────────────────────────────────────────────
