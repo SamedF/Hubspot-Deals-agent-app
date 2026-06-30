@@ -1,6 +1,6 @@
 # Generate daily tasks from emails, meetings, and HubSpot
 
-Scans the last 48–72 hours of email exchanges across two sources — Microsoft 365 (Office 365 inbox) and HubSpot (emails logged in the CRM) — plus meeting next steps, to produce a prioritized follow-up task list.
+Scans the last 48–72 hours of communications across three sources — Microsoft 365 emails, Microsoft Teams chat messages, and HubSpot (emails logged in the CRM) — plus meeting next steps, to produce a prioritized follow-up task list.
 
 ## STEP 0 — Get config
 
@@ -21,33 +21,40 @@ console.log(JSON.stringify({apiKey,serverUrl}));
 
 Run both calls with the Bash tool:
 
-**Office 365 emails (last 48h, external only):**
+**Office 365 emails + Teams chats (last 48h):**
 ```bash
 curl -s -H "X-API-KEY: <apiKey>" "<serverUrl>/api/tasks/email-data"
 ```
+Returns: `{ emails: [...], teams_messages: [...] }`
 
 **HubSpot emails + meeting next steps (last 72h):**
 ```bash
 curl -s -H "X-API-KEY: <apiKey>" "<serverUrl>/api/tasks/hubspot-data"
 ```
+Returns: `{ emails: [...], meeting_next_steps: [...] }`
 
-Tell the user: "X Office 365 emails found, Y HubSpot emails found, Z meeting next steps."
+Tell the user: "X Office 365 emails, Y Teams messages, Z HubSpot emails, W meeting next steps."
 
 ---
 
-## STEP 2 — Analyze all email exchanges
+## STEP 2 — Analyze all communications
 
-Apply the same logic to **both** sources (Office 365 emails and HubSpot emails). For each email, create a task if ANY of:
-- An external contact sent a message and has not received a reply yet (their email is the last in the exchange)
-- The email body contains an explicit ask, question, or request directed at me
-- I (or a colleague) previously wrote "I'll send", "I'll check", "I'll get back to you", "je vous envoie", "je reviens vers vous", "I'll follow up", etc. — and no follow-up is visible
+Apply the same follow-up logic to all three sources. Create a task if ANY of:
+- An external contact sent a message and has not received a reply (their message is the last in the exchange)
+- The message body contains an explicit ask, question, or request directed at me
+- I (or a colleague) wrote "I'll send", "I'll check", "I'll get back to you", "je vous envoie", "je reviens vers vous", "I'll follow up", "on va vous envoyer", etc. — and no follow-up is visible
 - A prospect or client hasn't heard back after an initial outreach
 
-For HubSpot emails, also look at `direction`:
-- `INCOMING_EMAIL` = received from a contact → potential unanswered inbound
-- `EMAIL` = sent by us → check if it was a promise/commitment with no visible follow-up
+**Teams-specific rules** (use `chat_type` field):
+- `oneOnOne` chats: treat like an email thread — look for unanswered messages or open commitments
+- `group` chats: only flag if someone directly asked me a question or I made a commitment
+- `meeting` chats: look for action items discussed during the meeting
 
-Skip: newsletters, automated notifications, out-of-office replies, internal emails (quinta.im / quicktext.im), read receipts, booking confirmations.
+**HubSpot email direction** (`direction` field):
+- `INCOMING_EMAIL` = received from a contact → check if unanswered
+- `EMAIL` = sent by us → check if it contained a commitment with no follow-up visible
+
+Skip: automated notifications, out-of-office replies, internal-only exchanges (quinta.im / quicktext.im), read receipts, booking confirmations, system messages.
 
 Deduplicate: if the same thread appears in both Office 365 and HubSpot, create only one task.
 
@@ -84,7 +91,7 @@ Each task object must follow this schema:
 {
   "id": "task_<timestamp>_<index>",
   "status": "todo",
-  "source": "email|hubspot-email|meeting",
+  "source": "email|teams|hubspot-email|meeting",
   "title": "Short action title (e.g. 'Reply to Jean-Pierre re: pricing')",
   "body": "Context or details (1-2 sentences)",
   "related_to": "Company or person name",
@@ -92,6 +99,7 @@ Each task object must follow this schema:
   "priority": "high|medium|low",
   "hubspot_email_id": "HubSpot email object id if source=hubspot-email, else null",
   "email_thread_id": "conversation_id if source=email, else null",
+  "teams_chat_id": "chat_id if source=teams, else null",
   "created_at": "<current ISO timestamp>"
 }
 ```
@@ -116,6 +124,7 @@ Tell the user:
 ✅ DONE
 Tasks generated      : X
   📧 Office 365      : X
+  💬 Teams chats     : X
   💼 HubSpot emails  : X
   🎯 Meeting steps   : X
 Open the Tasks tab at http://localhost:3333

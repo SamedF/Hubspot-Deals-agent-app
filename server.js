@@ -29,7 +29,7 @@ const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID;
 const APP_URL = (process.env.APP_URL || 'http://localhost:' + PORT).replace(/\/$/, '');
 const TOKENS_FILE = path.join(process.env.DEALS_DIR || __dirname, 'tokens.json');
 const TASKS_FILE  = path.join(process.env.DEALS_DIR || __dirname, 'tasks.json');
-const OAUTH_SCOPES = 'Calendars.Read Files.Read Mail.Read User.Read offline_access';
+const OAUTH_SCOPES = 'Calendars.Read Files.Read Mail.Read Chat.Read User.Read offline_access';
 const INTERNAL_DOMAINS = ['quinta.im', 'quicktext.im'];
 
 const PIPELINES = {
@@ -566,16 +566,18 @@ const server = http.createServer(async (req, res) => {
   if (method === 'GET' && pathname === '/api/tasks/email-data') {
     const tokens = readTokens();
     const emails_out = [];
-    for (const email of Object.keys(tokens)) {
-      const token = await getValidToken(email).catch(() => null);
+    const teams_out = [];
+    for (const userEmail of Object.keys(tokens)) {
+      const token = await getValidToken(userEmail).catch(() => null);
       if (!token) continue;
       const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-      const filter = `receivedDateTime ge ${since} and isDraft eq false`;
-      const r = await graphRequest(token,
-        `/me/messages?$filter=${encodeURIComponent(filter)}&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead&$orderby=receivedDateTime+desc&$top=60`
+
+      // Office 365 emails
+      const mailR = await graphRequest(token,
+        `/me/messages?$filter=${encodeURIComponent('receivedDateTime ge ' + since + ' and isDraft eq false')}&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,isRead&$orderby=receivedDateTime+desc&$top=60`
       ).catch(() => null);
-      if (r?.value) {
-        r.value.filter(m => !INTERNAL_DOMAINS.some(d =>
+      if (mailR?.value) {
+        mailR.value.filter(m => !INTERNAL_DOMAINS.some(d =>
           (m.from?.emailAddress?.address || '').toLowerCase().endsWith('@' + d)
         )).forEach(m => emails_out.push({
           id: m.id, conversation_id: m.conversationId,
@@ -584,11 +586,37 @@ const server = http.createServer(async (req, res) => {
           from_email: m.from?.emailAddress?.address || '',
           received_at: m.receivedDateTime,
           preview: m.bodyPreview || '',
-          is_read: m.isRead, account: email,
+          is_read: m.isRead, account: userEmail,
         }));
       }
+
+      // Teams chat messages
+      const chatsR = await graphRequest(token,
+        `/me/chats?$select=id,chatType,lastMessagePreview,topic,members&$orderby=lastMessagePreview/createdDateTime+desc&$top=20`
+      ).catch(() => null);
+      const recentChats = (chatsR?.value || []).filter(c =>
+        c.lastMessagePreview?.createdDateTime >= since
+      );
+      for (const chat of recentChats.slice(0, 12)) {
+        const msgR = await graphRequest(token,
+          `/me/chats/${chat.id}/messages?$filter=${encodeURIComponent('createdDateTime ge ' + since)}&$select=id,createdDateTime,from,body,messageType&$top=20`
+        ).catch(() => null);
+        (msgR?.value || [])
+          .filter(m => m.messageType === 'message' && m.body?.content)
+          .forEach(m => teams_out.push({
+            id: m.id,
+            chat_id: chat.id,
+            chat_type: chat.chatType, // 'oneOnOne' | 'group' | 'meeting'
+            chat_topic: chat.topic || '',
+            created_at: m.createdDateTime,
+            from_name: m.from?.user?.displayName || '',
+            from_email: m.from?.user?.email || '',
+            body: m.body.content.replace(/<[^>]+>/g, '').trim().slice(0, 500),
+            account: userEmail,
+          }));
+      }
     }
-    return json(res, { emails: emails_out });
+    return json(res, { emails: emails_out, teams_messages: teams_out });
   }
 
   // HubSpot email engagements (emails logged in HubSpot CRM, last 72h)
