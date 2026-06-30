@@ -21,7 +21,7 @@ const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 const OWNER_ID = process.env.HUBSPOT_OWNER_ID || '247600067';
 const HUBSPOT_PORTAL = process.env.HUBSPOT_PORTAL || '25445053';
 const LOGIN_USER = process.env.QD_USER || 'quinta';
-const LOGIN_PASS = process.env.QD_PASS || 'dealsQ26';
+const LOGIN_PASS = process.env.QD_PASS || '';
 const API_KEY = process.env.QD_API_KEY || null; // optional: allows agent to POST deals without a session
 const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID;
 const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
@@ -40,6 +40,10 @@ const PIPELINES = {
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
 const sessions = new Map(); // token -> expiry timestamp
+const loginAttempts = new Map(); // ip -> { count, blockedUntil, windowStart }
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const BODY_LIMIT_BYTES = 1024 * 1024;
 
 function createSession() {
   const token = crypto.randomBytes(32).toString('hex');
@@ -59,6 +63,57 @@ setInterval(() => {
   const now = Date.now();
   for (const [t, exp] of sessions) if (now > exp) sessions.delete(t);
 }, 3600000);
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, state] of loginAttempts) {
+    if (state.blockedUntil > now) continue;
+    if (now - state.windowStart > LOGIN_WINDOW_MS) loginAttempts.delete(ip);
+  }
+}, 300000);
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function getCookieFlags(req) {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const isSecure = APP_URL.startsWith('https://') || forwardedProto === 'https';
+  return 'HttpOnly; SameSite=Strict; Path=/' + (isSecure ? '; Secure' : '');
+}
+
+function getLoginState(req) {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const current = loginAttempts.get(ip);
+  if (!current || now - current.windowStart > LOGIN_WINDOW_MS) {
+    const fresh = { count: 0, blockedUntil: 0, windowStart: now };
+    loginAttempts.set(ip, fresh);
+    return { ip, state: fresh };
+  }
+  return { ip, state: current };
+}
+
+function isLoginBlocked(req) {
+  const { state } = getLoginState(req);
+  return state.blockedUntil > Date.now();
+}
+
+function recordLoginFailure(req) {
+  const { state } = getLoginState(req);
+  state.count += 1;
+  if (state.count >= MAX_LOGIN_ATTEMPTS) {
+    state.blockedUntil = Date.now() + LOGIN_WINDOW_MS;
+  }
+}
+
+function clearLoginFailures(req) {
+  loginAttempts.delete(getClientIp(req));
+}
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
 const sseClients = new Set();
@@ -281,8 +336,24 @@ async function createQuoteForDeal(dealId, deal) {
   return { id: quote.id, url: quoteUrl };
 }
 
-function readBody(req) {
-  return new Promise(resolve => { let b = ''; req.on('data', c => b += c); req.on('end', () => resolve(b)); });
+function readBody(req, limitBytes = BODY_LIMIT_BYTES) {
+  return new Promise((resolve, reject) => {
+    let b = '';
+    let size = 0;
+    req.on('data', c => {
+      size += c.length;
+      if (size > limitBytes) {
+        const err = new Error('Request body too large');
+        err.statusCode = 413;
+        req.destroy(err);
+        reject(err);
+        return;
+      }
+      b += c;
+    });
+    req.on('end', () => resolve(b));
+    req.on('error', reject);
+  });
 }
 
 function json(res, data, status) {
@@ -305,17 +376,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (method === 'POST' && pathname === '/api/login') {
-    const body = await readBody(req);
+    if (!LOGIN_PASS) return json(res, { error: 'Login password is not configured on the server' }, 503);
+    if (isLoginBlocked(req)) return json(res, { error: 'Too many login attempts. Try again later.' }, 429);
+    let body;
+    try { body = await readBody(req); } catch (e) { return json(res, { error: e.message }, e.statusCode || 400); }
     let creds;
     try { creds = JSON.parse(body); } catch { return json(res, { error: 'Bad request' }, 400); }
     if (creds.user === LOGIN_USER && creds.pass === LOGIN_PASS) {
+      clearLoginFailures(req);
       const token = createSession();
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Set-Cookie': 'qds=' + token + '; HttpOnly; SameSite=Strict; Path=/',
+        'Set-Cookie': 'qds=' + token + '; ' + getCookieFlags(req),
       });
       res.end(JSON.stringify({ ok: true }));
     } else {
+      recordLoginFailure(req);
       json(res, { error: 'Invalid credentials' }, 401);
     }
     return;
@@ -324,7 +400,7 @@ const server = http.createServer(async (req, res) => {
   if (method === 'POST' && pathname === '/api/logout') {
     const m = (req.headers.cookie || '').match(/qds=([0-9a-f]{64})/);
     if (m) sessions.delete(m[1]);
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': 'qds=; Max-Age=0; Path=/' });
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': 'qds=; Max-Age=0; ' + getCookieFlags(req) });
     res.end(JSON.stringify({ ok: true }));
     return;
   }
@@ -463,7 +539,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (method === 'POST' && pathname === '/api/tasks') {
-    const body = await readBody(req);
+    let body;
+    try { body = await readBody(req); } catch (e) { return json(res, { error: e.message }, e.statusCode || 400); }
     try {
       const incoming = JSON.parse(body);
       const newTasks = Array.isArray(incoming) ? incoming : [incoming];
@@ -597,7 +674,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (method === 'POST' && pathname === '/api/deals') {
-    const body = await readBody(req);
+    let body;
+    try { body = await readBody(req); } catch (e) { return json(res, { error: e.message }, e.statusCode || 400); }
     try {
       const incoming = JSON.parse(body);
       const newDeals = Array.isArray(incoming) ? incoming : [incoming];
@@ -614,7 +692,8 @@ const server = http.createServer(async (req, res) => {
     const action = match[2] || '';
 
     if (method === 'PUT' && !action) {
-      const body = await readBody(req);
+      let body;
+      try { body = await readBody(req); } catch (e) { return json(res, { error: e.message }, e.statusCode || 400); }
       try {
         const deals = readDeals();
         if (idx < 0 || idx >= deals.length) return json(res, { error: 'Not found' }, 404);
@@ -709,6 +788,10 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log('\nQuinta Deal Review  ->  http://localhost:' + PORT);
-  console.log('Login: ' + LOGIN_USER + ' / dealsQ26  (override: QD_USER / QD_PASS)\n');
+  if (LOGIN_PASS) {
+    console.log('Login user: ' + LOGIN_USER + '  (password comes from QD_PASS)\n');
+  } else {
+    console.log('Login is disabled until QD_PASS is configured.\n');
+  }
   exec((process.platform === 'win32' ? 'start' : 'open') + ' http://localhost:' + PORT);
 });
