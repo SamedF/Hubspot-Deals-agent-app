@@ -20,8 +20,8 @@ const HTML_FILE = path.join(__dirname, 'ui.html');
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 const OWNER_ID = process.env.HUBSPOT_OWNER_ID || '247600067';
 const HUBSPOT_PORTAL = process.env.HUBSPOT_PORTAL || '25445053';
-const LOGIN_USER = process.env.QD_USER || 'quinta';
-const LOGIN_PASS = process.env.QD_PASS || '';
+const LOGIN_USER = process.env.QD_USER;
+const LOGIN_PASS = process.env.QD_PASS;
 const API_KEY = process.env.QD_API_KEY || null; // optional: allows agent to POST deals without a session
 const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID;
 const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
@@ -212,7 +212,9 @@ function graphDownload(downloadUrl) {
   });
 }
 
-const oauthStates = new Set();
+// ── OAuth states (with expiry to prevent unbounded growth) ────────────────────
+const oauthStates = new Map(); // state -> expiresAt
+setInterval(() => { const now = Date.now(); for (const [s, exp] of oauthStates) if (now > exp) oauthStates.delete(s); }, 600000);
 
 // ── HubSpot ───────────────────────────────────────────────────────────────────
 function hubspotRequest(method, path, payload) {
@@ -369,9 +371,14 @@ const server = http.createServer(async (req, res) => {
 
   if (method === 'GET' && pathname === '/') {
     try {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+      });
       res.end(fs.readFileSync(HTML_FILE));
-    } catch (e) { res.writeHead(500); res.end('ui.html not found: ' + e.message); }
+    } catch (e) { console.error('Failed to serve ui.html:', e.message); res.writeHead(500); res.end('Internal server error'); }
     return;
   }
 
@@ -414,13 +421,17 @@ const server = http.createServer(async (req, res) => {
   if (AZURE_CLIENT_ID && method === 'GET' && pathname === '/auth/callback') {
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
-    if (!code || !oauthStates.has(state)) { res.writeHead(400); res.end('Invalid OAuth state'); return; }
+    const stateExp = oauthStates.get(state);
+    if (!code || !stateExp || Date.now() > stateExp) { res.writeHead(400); res.end('Invalid or expired OAuth state'); return; }
     oauthStates.delete(state);
     try {
       const tr = await msTokenRequest({ grant_type: 'authorization_code', code,
         client_id: AZURE_CLIENT_ID, client_secret: AZURE_CLIENT_SECRET,
         redirect_uri: APP_URL + '/auth/callback', scope: OAUTH_SCOPES });
-      if (!tr.access_token) { res.writeHead(400); res.end('Token exchange failed: ' + JSON.stringify(tr)); return; }
+      if (!tr.access_token) {
+        console.error('OAuth token exchange failed:', tr.error, tr.error_description);
+        res.writeHead(400); res.end('OAuth error — check server logs'); return;
+      }
       const profile = await graphRequest(tr.access_token, '/me?$select=displayName,mail,userPrincipalName');
       const email = profile.mail || profile.userPrincipalName;
       const tokens = readTokens();
@@ -429,7 +440,7 @@ const server = http.createServer(async (req, res) => {
         connected_at: new Date().toISOString() };
       writeTokens(tokens);
       res.writeHead(302, { Location: '/' }); res.end();
-    } catch (e) { res.writeHead(500); res.end('OAuth error: ' + e.message); }
+    } catch (e) { console.error('OAuth callback error:', e.message); res.writeHead(500); res.end('OAuth error'); }
     return;
   }
 
@@ -439,7 +450,7 @@ const server = http.createServer(async (req, res) => {
   // OAuth connect (session required — starts the Microsoft login flow)
   if (AZURE_CLIENT_ID && method === 'GET' && pathname === '/auth/connect') {
     const state = crypto.randomBytes(16).toString('hex');
-    oauthStates.add(state);
+    oauthStates.set(state, Date.now() + 600000);
     const authUrl = 'https://login.microsoftonline.com/' + AZURE_TENANT_ID + '/oauth2/v2.0/authorize' +
       '?client_id=' + AZURE_CLIENT_ID +
       '&response_type=code' +
